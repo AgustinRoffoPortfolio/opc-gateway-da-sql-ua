@@ -24,7 +24,7 @@ public class GatewaySnapshotTests
     private static UaServerStatus Ua() => new(1, 0);
 
     private static GatewaySnapshot Snap(TagCache cache, LinkState state = LinkState.Connected) =>
-        GatewaySnapshot.Build(cache, Link(state), Ua(), T1);
+        GatewaySnapshot.Build(cache, Link(state), Ua(), T1, UaAuditSnapshot.Empty);
 
     private static void Push(TagCache cache, int i, object? value, TagQuality quality) =>
         cache.Update(new Dictionary<string, TagSample>

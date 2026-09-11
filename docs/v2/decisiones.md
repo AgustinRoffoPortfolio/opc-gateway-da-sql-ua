@@ -31,8 +31,9 @@ tres se verificaron antes de adoptarlo:
 - **Licencia MIT.** No aprieta la licencia heredada, que en este repo la fija la
   dependencia más restrictiva.
 - **Funciona en x86.** El host del gateway compila en 32 bits por el COM interop de OPC
-  DA, y este driver lleva una parte nativa en Windows. La verificación está en
-  `verificacion.md`: el proceso carga la biblioteca de `runtimes/win-x86/native`.
+  DA, y este driver lleva una parte nativa en Windows. Verificado con un probe
+  compilado en x86: el proceso carga la biblioteca de `runtimes/win-x86/native`,
+  confirmado por los módulos cargados del proceso y no deducido del tipo de error.
 - **Es el camino soportado.** `System.Data.SqlClient` está deprecado y las
   características nuevas solo llegan a este paquete.
 
@@ -86,5 +87,6 @@ escuche el tráfico, pero no de que alguien se haga pasar por el servidor. Ahí 
 correcta puede ser distinta, y tiene que poder tomarse editando un JSON y no
 recompilando (P10).
 
-Los dos comportamientos se verificaron contra el contenedor, fallando y funcionando. Ver
-`verificacion.md`.
+Los dos comportamientos se verificaron contra el contenedor: con el valor por defecto la
+conexión falla durante el inicio de sesión por el certificado autofirmado, y con la
+validación del emisor omitida abre y el servidor responde.

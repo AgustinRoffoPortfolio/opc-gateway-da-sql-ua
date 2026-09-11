@@ -1,0 +1,27 @@
+# SQL Server local para desarrollo de la fuente SQL.
+# Se levanta con:  docker compose up -d
+#
+# La password del usuario sa se toma de un archivo .env en esta misma carpeta,
+# que git ignora. Ver .env.example.
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    container_name: gateway-sql
+    environment:
+      ACCEPT_EULA: "Y"
+      # Falla con un mensaje claro si la variable no está definida.
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?definir MSSQL_SA_PASSWORD en el archivo .env}
+      # Edición Developer: funcionalidad completa, solo para desarrollo y pruebas.
+      MSSQL_PID: Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      # Volumen con nombre: los datos sobreviven a borrar el contenedor.
+      - sqldata:/var/opt/mssql
+
+# Sin política de reinicio a propósito: la base corre solo cuando se la levanta,
+# para no dejarla ocupando memoria en segundo plano.
+
+volumes:
+  sqldata:

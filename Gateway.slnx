@@ -10,6 +10,7 @@
     <Project Path="tests/Gateway.Tests/Gateway.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
+    <Project Path="tools/SqlSimulator/SqlSimulator.csproj" />
     <Project Path="tools/TimestampProbe/TimestampProbe.csproj" />
   </Folder>
 </Solution>

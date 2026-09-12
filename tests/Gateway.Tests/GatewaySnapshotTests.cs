@@ -10,11 +10,12 @@ public class GatewaySnapshotTests
     private static string DaName(int i) => $"Sim.Tag{i:D3}";
 
     private static TagDefinition Def(int i) =>
-        new(UaName(i), DaName(i), TagDataType.Double, 1.0, 0.0);
+        new(UaName(i), DaName(i), TagDataType.Double, 1.0, 0.0,
+            StaleAfter: TimeSpan.FromHours(1));
 
     // Ventana larga: estos tests controlan la calidad a mano, no miden degradacion.
     private static TagCache CacheWith(int count) =>
-        new(Enumerable.Range(0, count).Select(Def), TimeSpan.FromHours(1));
+        new(Enumerable.Range(0, count).Select(Def));
 
     /// Vinculo sano y sin actividad relevante, para que el diagnostico dependa
     /// solo de los contadores de tags.

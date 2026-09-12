@@ -32,4 +32,10 @@ public sealed record TagDefinition(
     double Deadband = 0,
     TagAccessLevel AccessLevel = TagAccessLevel.Read,
     string Description = "",
-    bool Enabled = true);
+    bool Enabled = true,
+
+    // Cuanto puede pasar sin refresco antes de degradar este tag por
+    // antiguedad. null significa no degradar nunca (V2-11): es el caso de los
+    // tags SQL, donde la calidad la manda la columna Q y no el reloj.
+    // No sale del CSV: lo completa el host segun el origen del tag.
+    TimeSpan? StaleAfter = null);

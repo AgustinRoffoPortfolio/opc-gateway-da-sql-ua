@@ -60,19 +60,16 @@ public sealed class TagCache
     // distintos: uno escribe mientras el otro lee, sin lock explicito.
     private readonly ConcurrentDictionary<string, TagState> _stateByUaName = new();
 
-    // Cuanto puede pasar sin refresco antes de considerar viejo un tag. Llega
-    // como duracion y no como configuracion: Gateway.Core no depende de nadie,
-    // asi que el host traduce ciclos a tiempo y la cache solo mide.
-    private readonly TimeSpan _staleAfter;
+    // Cuanto puede pasar sin refresco antes de considerar viejo cada tag, o
+    // null para no degradarlo nunca. Deja de ser un valor unico de la cache
+    // porque con dos fuentes no hay un ritmo unico (V2-11): un tag SQL que se
+    // pollea cada 30 s estaria vencido casi siempre contra el umbral de DA.
+    // Llega como duracion y no como configuracion: Gateway.Core no depende de
+    // nadie, asi que el host traduce ciclos a tiempo y la cache solo mide.
+    private readonly Dictionary<string, TimeSpan?> _staleAfterByUaName;
 
-    public TagCache(IEnumerable<TagDefinition> definitions, TimeSpan staleAfter)
+    public TagCache(IEnumerable<TagDefinition> definitions)
     {
-        if (staleAfter <= TimeSpan.Zero)
-            throw new ArgumentOutOfRangeException(nameof(staleAfter),
-                "La ventana de antiguedad tiene que ser positiva.");
-
-        _staleAfter = staleAfter;
-
         _definitionsByDaName = definitions
             .GroupBy(d => d.OpcDaName)
             .ToDictionary(g => g.Key, g => g.ToList());
@@ -80,6 +77,12 @@ public sealed class TagCache
         _daNameByUaName = _definitionsByDaName
             .SelectMany(entry => entry.Value.Select(d => (d.OpcUaName, entry.Key)))
             .ToDictionary(pair => pair.OpcUaName, pair => pair.Key);
+
+        // Indexado por nombre UA y no por nombre DA porque la degradacion se
+        // evalua al leer, y del otro lado siempre se pregunta por nombre UA.
+        _staleAfterByUaName = _definitionsByDaName.Values
+            .SelectMany(list => list)
+            .ToDictionary(d => d.OpcUaName, d => d.StaleAfter);
 
         var now = DateTime.UtcNow;
 
@@ -119,7 +122,7 @@ public sealed class TagCache
     /// </summary>
     public TagState Get(string uaName) =>
         _stateByUaName.TryGetValue(uaName, out var state)
-            ? Degrade(state, DateTime.UtcNow)
+            ? Degrade(state, _staleAfterByUaName.GetValueOrDefault(uaName), DateTime.UtcNow)
             : new TagState(null, TagQuality.UnknownTag, default, DateTime.UtcNow);
 
     /// <summary>
@@ -155,9 +158,14 @@ public sealed class TagCache
     /// tag ya venia malo y encima dejamos de tener noticias, pasarlo a Uncertain
     /// seria decirle al cliente que el dato mejoro justo cuando se corto.
     /// </remarks>
-    private TagState Degrade(TagState state, DateTime now)
+    private static TagState Degrade(TagState state, TimeSpan? staleAfter, DateTime now)
     {
-        if (now - state.LastUpdateUtc < _staleAfter)
+        // Sin umbral no hay nada que medir: el tag conserva la calidad que le
+        // puso su fuente. Es el caso SQL, donde la calidad viene en la columna Q.
+        if (staleAfter is not { } window)
+            return state;
+
+        if (now - state.LastUpdateUtc < window)
             return state;
 
         // Unico caso en que la antiguedad empeora un Bad: "todavia no leimos"

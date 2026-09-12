@@ -248,7 +248,7 @@ foreach (var error in tagLoadResult.Errors)
 Log.Information("Tags cargados: {Validos} validos, {Invalidos} con error",
     tagLoadResult.Tags.Count, tagLoadResult.Errors.Count);
 
-var tagDefinitions = tagLoadResult.Tags;
+// (el calculo de la ventana de antiguedad se movio abajo, antes de tagDefinitions)
 
 // Frontera entre los dos mundos: el driver DA la llena, el node manager la lee.
 // La ventana de antiguedad se traduce aca de ciclos a tiempo: el criterio se
@@ -257,7 +257,15 @@ var tagDefinitions = tagLoadResult.Tags;
 var staleAfter = TimeSpan.FromMilliseconds(
     (long)daOptions.UpdateRateMs * daOptions.StaleAfterCycles);
 
-var cache = new TagCache(tagDefinitions, staleAfter);
+// El umbral deja de ser un parametro de la cache y viaja por tag (V2-11). Hoy
+// todos los tags son DA y reciben el mismo valor, calculado desde DaOptions;
+// cuando entre la fuente SQL, sus definitions van a llevar null para que la
+// calidad la mande la columna Q y no el reloj del gateway.
+var tagDefinitions = tagLoadResult.Tags
+    .Select(d => d with { StaleAfter = staleAfter })
+    .ToList();
+
+var cache = new TagCache(tagDefinitions);
 
 Log.Information("Degradacion por antiguedad: {Cycles} ciclos ({Ms} ms sin refresco)",
     daOptions.StaleAfterCycles, staleAfter.TotalMilliseconds);

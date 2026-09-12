@@ -16,7 +16,7 @@ public class TagCacheTests
     // Ventana de antiguedad larga a proposito: estos tests miden transformacion
     // y calidad, no degradacion por tiempo. La degradacion tiene sus propios tests.
     private static TagCache CacheWith(TagDefinition definition) =>
-        new([definition], TimeSpan.FromHours(1));
+        new([definition with { StaleAfter = TimeSpan.FromHours(1) }]);
 
     private static Dictionary<string, TagSample> Sample(object? value, TagQuality quality, DateTime timestamp) =>
         new() { ["Random.Real8"] = new TagSample(value, quality, timestamp) };
@@ -133,7 +133,8 @@ public class TagCacheTests
         var enBar = new TagDefinition("PLANTA_01.PRESION_BAR", "Random.Real8", TagDataType.Double, 1.0, 0.0);
         var enKgCm2 = new TagDefinition("PLANTA_01.PRESION_KGCM2", "Random.Real8", TagDataType.Double, 1.02, 0.0);
 
-        var cache = new TagCache([enBar, enKgCm2], TimeSpan.FromHours(1));
+        var stale = TimeSpan.FromHours(1);
+        var cache = new TagCache([enBar with { StaleAfter = stale }, enKgCm2 with { StaleAfter = stale }]);
         cache.Update(Sample(100.0, TagQuality.Good, T1));
 
         Assert.Equal(100.0, cache.Get("PLANTA_01.PRESION_BAR").ScaledValue);
@@ -189,7 +190,13 @@ public class TagCacheTests
     // reloj por dentro. Es el precio de no tener el tiempo inyectado todavia.
 
     private static TagCache CacheQueEnvejeceRapido(TagDefinition definition) =>
-        new([definition], TimeSpan.FromMilliseconds(30));
+        new([definition with { StaleAfter = TimeSpan.FromMilliseconds(30) }]);
+
+    // Sin umbral: la calidad la manda la fuente y el reloj no opina (V2-11).
+    // Es como van a entrar los tags SQL, donde la columna Q ya dice si el dato
+    // sirve, y donde 30 s entre polling y polling serian "viejo" casi siempre.
+    private static TagCache CacheQueNuncaEnvejece(TagDefinition definition) =>
+        new([definition with { StaleAfter = null }]);
 
     private static void EsperarAQueEnvejezca() => Thread.Sleep(120);
 
@@ -215,6 +222,34 @@ public class TagCacheTests
         Assert.Equal(TagQuality.LastUsableValue, state.Quality);
         Assert.Equal(10.0, state.ScaledValue);      // el valor no se toca
         Assert.Equal(T1, state.SourceTimestamp);    // el timestamp tampoco
+    }
+
+    [Fact]
+    public void TagSinUmbral_NoDegradaAunqueEnvejezca()
+    {
+        var cache = CacheQueNuncaEnvejece(Def(multiplier: 2.0));
+        cache.Update(Sample(5.0, TagQuality.Good, T1));
+
+        EsperarAQueEnvejezca();
+
+        var state = cache.Get("PLANTA_01.MEDICION.PRESION_ENTRADA");
+        Assert.Equal(TagQuality.Good, state.Quality);
+        Assert.Equal(10.0, state.ScaledValue);
+        Assert.Equal(T1, state.SourceTimestamp);
+    }
+
+    [Fact]
+    public void TagSinUmbralYSinDato_SigueEsperandoDatoInicial()
+    {
+        // Un tag SQL puede tardar hasta un ciclo de polling entero en recibir su
+        // primera muestra. Durante esa espera sigue siendo "todavia no llego",
+        // no "no hay nadie del otro lado".
+        var cache = CacheQueNuncaEnvejece(Def());
+
+        EsperarAQueEnvejezca();
+
+        var state = cache.Get("PLANTA_01.MEDICION.PRESION_ENTRADA");
+        Assert.Equal(TagQuality.WaitingForInitialData, state.Quality);
     }
 
     [Fact]

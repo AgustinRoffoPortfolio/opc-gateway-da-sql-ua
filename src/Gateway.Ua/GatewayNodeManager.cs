@@ -116,13 +116,39 @@ public class GatewayNodeManager : CustomNodeManager2
     /// </remarks>
     private void AddDiagnosticNodes(NodeState root)
     {
+        // Status queda con lo que es del proceso. El vinculo se fue a una rama
+        // por fuente: con dos fuentes, un unico LinkState obligaria a publicar
+        // "el peor de los dos" y una base caida con DA sano se veria como un
+        // gateway caido entero.
         var status = GetOrAddFolder(root, "Gateway.Status", "Status");
-        AddDiagnosticVariable(status, "LinkState", DataTypeIds.String);
-        AddDiagnosticVariable(status, "LastSuccessfulCycleUtc", DataTypeIds.String);
-        AddDiagnosticVariable(status, "SecondsSinceLastCycle", DataTypeIds.Double);
-        AddDiagnosticVariable(status, "ReconnectAttempts", DataTypeIds.Int32);
-        AddDiagnosticVariable(status, "LastError", DataTypeIds.String);
         AddDiagnosticVariable(status, "UptimeSeconds", DataTypeIds.Double);
+
+        // Una rama por fuente que realmente tenga tags declarados. Publicar una
+        // rama SQL vacia cuando no hay tags SQL seria afirmar que existe algo
+        // que no existe, y el address space es un contrato.
+        foreach (var source in Enum.GetValues<TagSource>())
+        {
+            if (!_cache.SourceTags(source).Any()) continue;
+
+            var folder = GetOrAddFolder(root, $"Gateway.{source}", source.ToString());
+            AddDiagnosticVariable(folder, "LinkState", DataTypeIds.String);
+            AddDiagnosticVariable(folder, "LastSuccessfulCycleUtc", DataTypeIds.String);
+            AddDiagnosticVariable(folder, "SecondsSinceLastCycle", DataTypeIds.Double);
+            AddDiagnosticVariable(folder, "ReconnectAttempts", DataTypeIds.Int32);
+            AddDiagnosticVariable(folder, "LastError", DataTypeIds.String);
+            AddDiagnosticVariable(folder, "ReadCycles", DataTypeIds.Int64);
+            AddDiagnosticVariable(folder, "ReadFailures", DataTypeIds.Int64);
+            AddDiagnosticVariable(folder, "Connections", DataTypeIds.Int64);
+            AddDiagnosticVariable(folder, "Disconnections", DataTypeIds.Int64);
+            AddDiagnosticVariable(folder, "LastCycleMs", DataTypeIds.Double);
+            AddDiagnosticVariable(folder, "AvgCycleMs", DataTypeIds.Double);
+            AddDiagnosticVariable(folder, "MaxCycleMs", DataTypeIds.Double);
+            AddDiagnosticVariable(folder, "ConfiguredIntervalMs", DataTypeIds.Int32);
+            // Sello del gateway al cerrar la ultima actualizacion de cache. Va
+            // como String ISO-8601 y no como DateTime para que el cliente lo
+            // parsee sin depender de como el stack UA convierta el tipo fecha.
+            AddDiagnosticVariable(folder, "CacheStampUtc", DataTypeIds.String);
+        }
 
         var counters = GetOrAddFolder(root, "Gateway.Counters", "Counters");
         AddDiagnosticVariable(counters, "TotalConfigured", DataTypeIds.Int32);
@@ -132,10 +158,9 @@ public class GatewayNodeManager : CustomNodeManager2
         AddDiagnosticVariable(counters, "WaitingForInitialData", DataTypeIds.Int32);
         AddDiagnosticVariable(counters, "SilentNeverAnswered", DataTypeIds.Int32);
         AddDiagnosticVariable(counters, "SilentPreviouslyAnswered", DataTypeIds.Int32);
-        AddDiagnosticVariable(counters, "ReadCycles", DataTypeIds.Int64);
-        AddDiagnosticVariable(counters, "ReadFailures", DataTypeIds.Int64);
-        AddDiagnosticVariable(counters, "DaConnections", DataTypeIds.Int64);
-        AddDiagnosticVariable(counters, "DaDisconnections", DataTypeIds.Int64);
+        // ReadCycles, ReadFailures, Connections y Disconnections se fueron a la
+        // rama de cada fuente: sumarlos entre fuentes de ritmos distintos daba
+        // un numero que no significaba nada.
 
         // Auditoria del lado UA, en la misma carpeta que los contadores DA: el
         // que abre el diagnostico todavia no sabe de que lado esta el problema,
@@ -149,14 +174,8 @@ public class GatewayNodeManager : CustomNodeManager2
         AddDiagnosticVariable(counters, "UaLastRejectionUtc", DataTypeIds.String);
 
         var performance = GetOrAddFolder(root, "Gateway.Performance", "Performance");
-        AddDiagnosticVariable(performance, "LastCycleMs", DataTypeIds.Double);
-        // Sello del gateway al cerrar la ultima actualizacion de cache. Va como
-        // String ISO-8601 y no como DateTime para que el cliente lo parsee sin
-        // depender de como el stack UA convierta el tipo fecha.
-        AddDiagnosticVariable(performance, "CacheStampUtc", DataTypeIds.String);
-        AddDiagnosticVariable(performance, "AvgCycleMs", DataTypeIds.Double);
-        AddDiagnosticVariable(performance, "MaxCycleMs", DataTypeIds.Double);
-        AddDiagnosticVariable(performance, "ConfiguredIntervalMs", DataTypeIds.Int32);
+        // Los tiempos de ciclo tambien viven por fuente: 1000 ms de DA y
+        // decenas de segundos de SQL no promedian a nada util.
         AddDiagnosticVariable(performance, "ConnectedUaSessions", DataTypeIds.Int32);
         AddDiagnosticVariable(performance, "MonitoredItems", DataTypeIds.Int32);
         AddDiagnosticVariable(performance, "WorkingSetMb", DataTypeIds.Double);
@@ -214,14 +233,28 @@ public class GatewayNodeManager : CustomNodeManager2
         {
             var now = DateTime.UtcNow;
 
-            SetDiagnostic("Status.LinkState", snapshot.Status.LinkState.ToString(), now);
-            SetDiagnostic("Status.LastSuccessfulCycleUtc",
-                snapshot.Status.LastSuccessfulCycleUtc?.ToString("O") ?? "nunca", now);
-            SetDiagnostic("Status.SecondsSinceLastCycle",
-                snapshot.Status.SecondsSinceLastCycle ?? 0d, now);
-            SetDiagnostic("Status.ReconnectAttempts", snapshot.Status.ReconnectAttempts, now);
-            SetDiagnostic("Status.LastError", snapshot.Status.LastError ?? "", now);
             SetDiagnostic("Status.UptimeSeconds", snapshot.Status.UptimeSeconds, now);
+
+            foreach (var s in snapshot.Sources)
+            {
+                var f = s.Link.Source.ToString();
+                SetDiagnostic($"{f}.LinkState", s.Link.State.ToString(), now);
+                SetDiagnostic($"{f}.LastSuccessfulCycleUtc",
+                    s.Link.LastSuccessfulCycleUtc?.ToString("O", CultureInfo.InvariantCulture) ?? "nunca", now);
+                SetDiagnostic($"{f}.SecondsSinceLastCycle", s.SecondsSinceLastCycle ?? 0d, now);
+                SetDiagnostic($"{f}.ReconnectAttempts", s.Link.ReconnectAttempts, now);
+                SetDiagnostic($"{f}.LastError", s.Link.LastError ?? "", now);
+                SetDiagnostic($"{f}.ReadCycles", s.Link.ReadCycles, now);
+                SetDiagnostic($"{f}.ReadFailures", s.Link.ReadFailures, now);
+                SetDiagnostic($"{f}.Connections", s.Link.Connections, now);
+                SetDiagnostic($"{f}.Disconnections", s.Link.Disconnections, now);
+                SetDiagnostic($"{f}.LastCycleMs", s.Link.LastCycleMs, now);
+                SetDiagnostic($"{f}.AvgCycleMs", s.Link.AvgCycleMs, now);
+                SetDiagnostic($"{f}.MaxCycleMs", s.Link.MaxCycleMs, now);
+                SetDiagnostic($"{f}.ConfiguredIntervalMs", s.Link.ConfiguredIntervalMs, now);
+                SetDiagnostic($"{f}.CacheStampUtc",
+                    s.Link.LastCacheStampUtc?.ToString("O", CultureInfo.InvariantCulture) ?? "", now);
+            }
 
             var c = snapshot.Counters;
             SetDiagnostic("Counters.TotalConfigured", c.TotalConfigured, now);
@@ -231,10 +264,7 @@ public class GatewayNodeManager : CustomNodeManager2
             SetDiagnostic("Counters.WaitingForInitialData", c.WaitingForInitialData, now);
             SetDiagnostic("Counters.SilentNeverAnswered", c.SilentNeverAnswered, now);
             SetDiagnostic("Counters.SilentPreviouslyAnswered", c.SilentPreviouslyAnswered, now);
-            SetDiagnostic("Counters.ReadCycles", c.ReadCycles, now);
-            SetDiagnostic("Counters.ReadFailures", c.ReadFailures, now);
-            SetDiagnostic("Counters.DaConnections", c.DaConnections, now);
-            SetDiagnostic("Counters.DaDisconnections", c.DaDisconnections, now);
+
 
             var a = snapshot.Audit;
             SetDiagnostic("Counters.UaSessionsCreated", a.SessionsCreated, now);
@@ -253,15 +283,9 @@ public class GatewayNodeManager : CustomNodeManager2
                 a.LastRejectionUtc?.ToString("O", CultureInfo.InvariantCulture) ?? "nunca", now);
 
             var p = snapshot.Performance;
-            SetDiagnostic("Performance.LastCycleMs", p.LastCycleMs, now);
-            SetDiagnostic("Performance.AvgCycleMs", p.AvgCycleMs, now);
-            SetDiagnostic("Performance.MaxCycleMs", p.MaxCycleMs, now);
-            SetDiagnostic("Performance.ConfiguredIntervalMs", p.ConfiguredIntervalMs, now);
             SetDiagnostic("Performance.ConnectedUaSessions", p.ConnectedUaSessions, now);
             SetDiagnostic("Performance.MonitoredItems", p.MonitoredItems, now);
             SetDiagnostic("Performance.WorkingSetMb", Math.Round(p.WorkingSetMb, 1), now);
-            SetDiagnostic("Performance.CacheStampUtc",
-                p.LastCacheStampUtc?.ToString("O", CultureInfo.InvariantCulture) ?? "", now);
         }
     }
 

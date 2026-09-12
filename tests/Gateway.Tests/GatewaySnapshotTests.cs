@@ -19,13 +19,16 @@ public class GatewaySnapshotTests
 
     /// Vinculo sano y sin actividad relevante, para que el diagnostico dependa
     /// solo de los contadores de tags.
-    private static DaLinkStatus Link(LinkState state = LinkState.Connected) =>
-        new(state, T1, 0, null, 10, 0, 1, 0, 5.0, 5.0, 9.0, 1000, T1);
+    private static SourceLinkStatus Link(LinkState state = LinkState.Connected) =>
+        new(TagSource.OpcDa, state, T1, 0, null, 10, 0, 1, 0, 5.0, 5.0, 9.0, 1000, T1);
 
     private static UaServerStatus Ua() => new(1, 0);
 
     private static GatewaySnapshot Snap(TagCache cache, LinkState state = LinkState.Connected) =>
-        GatewaySnapshot.Build(cache, Link(state), Ua(), T1, UaAuditSnapshot.Empty);
+        GatewaySnapshot.Build(cache, [Link(state)], Ua(), T1, UaAuditSnapshot.Empty);
+
+    /// El diagnostico ya no es global: se lee de la unica fuente del snapshot.
+    private static Diagnosis Diag(GatewaySnapshot s) => s.Sources.Single().Diagnosis;
 
     private static void Push(TagCache cache, int i, object? value, TagQuality quality) =>
         cache.Update(TagSource.OpcDa,new Dictionary<string, TagSample>
@@ -44,7 +47,7 @@ public class GatewaySnapshotTests
 
         Assert.Equal(10, snapshot.Counters.Good);
         Assert.Equal(0, snapshot.Counters.SilentTotal);
-        Assert.Equal(Diagnosis.Healthy, snapshot.Diagnosis);
+        Assert.Equal(Diagnosis.Healthy, Diag(snapshot));
     }
 
     [Fact]
@@ -58,7 +61,7 @@ public class GatewaySnapshotTests
 
         Assert.Equal(10, snapshot.Counters.SilentNeverAnswered);
         Assert.Equal(0, snapshot.Counters.SilentPreviouslyAnswered);
-        Assert.Equal(Diagnosis.LikelyCsvMismatch, snapshot.Diagnosis);
+        Assert.Equal(Diagnosis.LikelyCsvMismatch, Diag(snapshot));
     }
 
     [Fact]
@@ -78,7 +81,7 @@ public class GatewaySnapshotTests
 
         Assert.Equal(0, snapshot.Counters.SilentNeverAnswered);
         Assert.Equal(10, snapshot.Counters.SilentPreviouslyAnswered);
-        Assert.Equal(Diagnosis.DaServerRepopulatedEmpty, snapshot.Diagnosis);
+        Assert.Equal(Diagnosis.ServerRepopulatedEmpty, Diag(snapshot));
     }
 
     /// El bug que motivo separar "mudo" de "mala calidad": un sensor fuera de
@@ -100,7 +103,7 @@ public class GatewaySnapshotTests
 
         Assert.Equal(10, snapshot.Counters.Uncertain);
         Assert.Equal(0, snapshot.Counters.SilentTotal);
-        Assert.Equal(Diagnosis.Healthy, snapshot.Diagnosis);
+        Assert.Equal(Diagnosis.Healthy, Diag(snapshot));
     }
 
     [Fact]
@@ -117,7 +120,7 @@ public class GatewaySnapshotTests
         var snapshot = Snap(cache);
 
         Assert.Equal(2, snapshot.Counters.SilentTotal);
-        Assert.Equal(Diagnosis.PartialDegradation, snapshot.Diagnosis);
+        Assert.Equal(Diagnosis.PartialDegradation, Diag(snapshot));
     }
 
     [Fact]
@@ -135,7 +138,7 @@ public class GatewaySnapshotTests
 
         Assert.Equal(10, snapshot.Counters.SilentNeverAnswered);
         Assert.Equal(10, snapshot.Counters.SilentPreviouslyAnswered);
-        Assert.Equal(Diagnosis.Indeterminate, snapshot.Diagnosis);
+        Assert.Equal(Diagnosis.Indeterminate, Diag(snapshot));
     }
 
     /// El vinculo manda sobre los contadores: sin nadie del otro lado no tiene
@@ -147,8 +150,8 @@ public class GatewaySnapshotTests
         for (var i = 0; i < 10; i++)
             Push(cache, i, null, TagQuality.ItemRejected);
 
-        Assert.Equal(Diagnosis.DaLinkDown, Snap(cache, LinkState.Disconnected).Diagnosis);
-        Assert.Equal(Diagnosis.DaServerStalled, Snap(cache, LinkState.Stalled).Diagnosis);
+        Assert.Equal(Diagnosis.LinkDown, Diag(Snap(cache, LinkState.Disconnected)));
+        Assert.Equal(Diagnosis.ServerStalled, Diag(Snap(cache, LinkState.Stalled)));
     }
 
     /// Al arrancar, todos los tags estan sin leer. Si contaran como mudos, cada
@@ -160,6 +163,6 @@ public class GatewaySnapshotTests
 
         Assert.Equal(10, snapshot.Counters.WaitingForInitialData);
         Assert.Equal(0, snapshot.Counters.SilentTotal);
-        Assert.Equal(Diagnosis.Healthy, snapshot.Diagnosis);
+        Assert.Equal(Diagnosis.Healthy, Diag(snapshot));
     }
 }

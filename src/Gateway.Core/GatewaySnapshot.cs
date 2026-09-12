@@ -1,6 +1,6 @@
 namespace Gateway.Core;
 
-/// <summary>Estado del vinculo COM con el servidor DA, visto por el driver.</summary>
+/// <summary>Estado del vinculo con una fuente, visto por su driver.</summary>
 public enum LinkState
 {
     Disconnected,
@@ -15,23 +15,24 @@ public enum LinkState
 }
 
 /// <summary>
-/// Interpretacion de los contadores. Es una heuristica, no una medicion: por eso
-/// se muestra siempre junto a los numeros que la generaron y nunca se publica
-/// como nodo UA (el address space es un contrato, y una opinion no va ahi).
+/// Interpretacion de los contadores de UNA fuente. Es una heuristica, no una
+/// medicion: por eso se muestra siempre junto a los numeros que la generaron y
+/// nunca se publica como nodo UA (el address space es un contrato, y una
+/// opinion no va ahi).
 /// </summary>
 public enum Diagnosis
 {
     Healthy,
-    DaLinkDown,
-    DaServerStalled,
+    LinkDown,
+    ServerStalled,
 
-    /// Los tags mudos nunca entregaron un dato: esos ItemIDs no existieron nunca
-    /// del otro lado. Apunta al CSV, no a la red.
+    /// Los tags mudos nunca entregaron un dato: esos nombres de origen no
+    /// existieron nunca del otro lado. Apunta al CSV, no a la red.
     LikelyCsvMismatch,
 
-    /// Los tags mudos si entregaron datos antes. El servidor sigue ahi pero
+    /// Los tags mudos si entregaron datos antes. La fuente sigue ahi pero
     /// perdio sus items: el caso del simulador relanzado sin su configuracion.
-    DaServerRepopulatedEmpty,
+    ServerRepopulatedEmpty,
 
     /// Hay tags mudos pero son una minoria del total. No es una causa global, y
     /// afirmar una mandaria a reiniciar un servidor que esta sano.
@@ -42,8 +43,13 @@ public enum Diagnosis
     Indeterminate
 }
 
-/// <summary>Lo que el driver DA reporta sobre si mismo. Lo llena Gateway.Da.</summary>
-public sealed record DaLinkStatus(
+/// <summary>
+/// Lo que un driver reporta sobre si mismo. Antes era DaLinkStatus: el unico
+/// campo atado a DA era el nombre del record, todo lo demas es generico de
+/// cualquier vinculo con polling. Lo llena Gateway.Da o el driver SQL.
+/// </summary>
+public sealed record SourceLinkStatus(
+    TagSource Source,
     LinkState State,
     DateTime? LastSuccessfulCycleUtc,
     int ReconnectAttempts,
@@ -68,15 +74,20 @@ public sealed record UaServerStatus(
     int ConnectedSessions,
     int MonitoredItems);
 
+/// <summary>
+/// Resumen global del proceso. Ya no habla del vinculo: con dos fuentes, un
+/// unico LinkState obligaria a inventar "el peor de los dos" y una base caida
+/// con DA sano se veria como un gateway caido entero (invariante 8).
+/// </summary>
 public sealed record GatewayStatus(
-    LinkState LinkState,
-    DateTime? LastSuccessfulCycleUtc,
-    double? SecondsSinceLastCycle,
-    int ReconnectAttempts,
-    string? LastError,
     DateTime StartedUtc,
     double UptimeSeconds);
 
+/// <summary>
+/// Conteo de tags por calidad. Sirve para el total y para cada fuente: los
+/// contadores de ciclos, fallos y conexiones salen de SourceLinkStatus, que es
+/// donde ya vivian, en vez de copiarse aca.
+/// </summary>
 public sealed record GatewayCounters(
     int TotalConfigured,
     int Good,
@@ -84,29 +95,32 @@ public sealed record GatewayCounters(
     int Bad,
     int WaitingForInitialData,
     int SilentNeverAnswered,
-    int SilentPreviouslyAnswered,
-    long ReadCycles,
-    long ReadFailures,
-    long DaConnections,
-    long DaDisconnections)
+    int SilentPreviouslyAnswered)
 {
     /// <summary>Tags que dejaron de contestar, sin contar los que aun no se leyeron.</summary>
     public int SilentTotal => SilentNeverAnswered + SilentPreviouslyAnswered;
 }
 
+/// <summary>
+/// Lo que es global al proceso y no pertenece a ninguna fuente. Los tiempos de
+/// ciclo se fueron a SourceLinkStatus: con dos fuentes de ritmos distintos
+/// (1000 ms contra decenas de segundos) un promedio unico no significa nada.
+/// </summary>
 public sealed record GatewayPerformance(
-    double LastCycleMs,
-    double AvgCycleMs,
-    double MaxCycleMs,
-    int ConfiguredIntervalMs,
     int ConnectedUaSessions,
     int MonitoredItems,
-    double WorkingSetMb,
-    /// <param name="LastCacheStampUtc">
-    /// Hora del gateway al cerrar la ultima actualizacion de cache. Viaja hasta
-    /// un nodo UA para medir la latencia cache->cliente. Null hasta el primer ciclo.
-    /// </param>
-    DateTime? LastCacheStampUtc);
+    double WorkingSetMb);
+
+/// <summary>
+/// Todo lo que se reporta de una fuente: su vinculo, sus tags y su diagnostico.
+/// Es la unidad que la pagina de diagnostico dibuja como una seccion y que el
+/// node manager publica como una rama.
+/// </summary>
+public sealed record SourceSnapshot(
+    SourceLinkStatus Link,
+    double? SecondsSinceLastCycle,
+    GatewayCounters Counters,
+    Diagnosis Diagnosis);
 
 /// <summary>
 /// Foto del gateway en un instante. Unica fuente para los nodos UA de
@@ -116,9 +130,14 @@ public sealed record GatewayPerformance(
 public sealed record GatewaySnapshot(
     DateTime TakenUtc,
     GatewayStatus Status,
+    /// <param name="Sources">
+    /// Una entrada por fuente activa, en el orden en que las paso el host. No
+    /// hay diagnostico global: combinar dos en uno volveria a esconder que una
+    /// fuente esta sana mientras la otra no.
+    /// </param>
+    IReadOnlyList<SourceSnapshot> Sources,
     GatewayCounters Counters,
     GatewayPerformance Performance,
-    Diagnosis Diagnosis,
     /// <param name="Audit">
     /// Conexiones e intentos rechazados. Va en la foto y no por un costado
     /// porque las dos vistas tienen que ver los mismos numeros: un contador de
@@ -138,87 +157,123 @@ public sealed record GatewaySnapshot(
     /// Arma la foto recorriendo la cache por la misma puerta que usa el node
     /// manager (<see cref="TagCache.Get"/>), que degrada al leer. Leer el estado
     /// por otro camino daria una vista que puede contradecir a la del cliente UA.
+    /// Los tags se cuentan una sola vez y se acumulan en paralelo en el total y
+    /// en el bucket de su fuente.
     /// </summary>
     public static GatewaySnapshot Build(
         TagCache cache,
-        DaLinkStatus link,
+        IReadOnlyList<SourceLinkStatus> links,
         UaServerStatus ua,
         DateTime startedUtc,
         UaAuditSnapshot audit)
     {
         var now = DateTime.UtcNow;
-        int good = 0, uncertain = 0, bad = 0, waiting = 0, neverAnswered = 0, previouslyAnswered = 0;
+
+        var total = new Tally();
+        var bySource = new Dictionary<TagSource, Tally>();
+        foreach (var link in links) bySource[link.Source] = new Tally();
 
         foreach (var uaName in cache.UaNames)
         {
             var state = cache.Get(uaName);
 
-            switch (state.Quality.Master)
-            {
-                case QualityMaster.Good: good++; break;
-                case QualityMaster.Uncertain: uncertain++; break;
-                default: bad++; break;
-            }
+            // Un tag cuya fuente no tiene link reportado se cuenta igual en el
+            // total: el numero global no puede depender de que el host haya
+            // registrado esa fuente.
+            Tally? source = null;
+            if (cache.GetSourceKey(uaName) is { } key)
+                bySource.TryGetValue(key.Source, out source);
 
-            // Al arranque todos los tags estan en este estado. Contarlos como
-            // mudos dispararia un diagnostico de falla en cada inicio.
-            if (state.Quality.Substatus == QualitySubstatus.BadWaitingForInitialData)
-            {
-                waiting++;
-                continue;
-            }
-
-            // Mudo = no se esta refrescando, que no es lo mismo que tener mala
-            // calidad. Un tag que llega Uncertain porque el sensor esta fuera de
-            // rango esta contestando bien; contarlo aca diagnosticaria una caida
-            // donde solo hay ruido de proceso. Solo cuentan los dos casos en que
-            // no llega dato: los Bad (rechazado, no conectado, no convierte) y
-            // el Uncertain que la propia cache fabrica por antiguedad.
-            var silent = state.Quality.Master is QualityMaster.Bad or QualityMaster.Error
-                         || state.Quality.Substatus == QualitySubstatus.UncertainLastUsableValue;
-
-            if (!silent) continue;
-
-            // ScaledValue solo se puebla con una muestra utilizable y ningun
-            // camino lo vuelve a null: que no sea null significa que este ItemID
-            // contesto alguna vez. Ese es todo el discriminante.
-            if (state.ScaledValue is null) neverAnswered++;
-            else previouslyAnswered++;
+            Count(state, total, source);
         }
 
-        var counters = new GatewayCounters(
-            cache.Count, good, uncertain, bad, waiting,
-            neverAnswered, previouslyAnswered,
-            link.ReadCycles, link.ReadFailures, link.Connections, link.Disconnections);
+        var sources = links
+            .Select(link => new SourceSnapshot(
+                link,
+                link.LastSuccessfulCycleUtc is { } last ? (now - last).TotalSeconds : null,
+                bySource[link.Source].ToCounters(),
+                Diagnose(link.State, bySource[link.Source].ToCounters())))
+            .ToList();
 
-        var status = new GatewayStatus(
-            link.State,
-            link.LastSuccessfulCycleUtc,
-            link.LastSuccessfulCycleUtc is { } last ? (now - last).TotalSeconds : null,
-            link.ReconnectAttempts,
-            link.LastError,
-            startedUtc,
-            (now - startedUtc).TotalSeconds);
+        var status = new GatewayStatus(startedUtc, (now - startedUtc).TotalSeconds);
 
         var performance = new GatewayPerformance(
-            link.LastCycleMs, link.AvgCycleMs, link.MaxCycleMs, link.ConfiguredIntervalMs,
             ua.ConnectedSessions, ua.MonitoredItems,
-            System.Diagnostics.Process.GetCurrentProcess().WorkingSet64 / 1024d / 1024d,
-            link.LastCacheStampUtc);
+            System.Diagnostics.Process.GetCurrentProcess().WorkingSet64 / 1024d / 1024d);
 
-        return new GatewaySnapshot(now, status, counters, performance,
-            Diagnose(link.State, counters), audit);
+        return new GatewaySnapshot(
+            now, status, sources, total.ToCounters(), performance, audit);
+    }
+
+    /// <summary>Acumulador mutable: evita recorrer la cache una vez por fuente.</summary>
+    private sealed class Tally
+    {
+        public int Configured, Good, Uncertain, Bad, Waiting, NeverAnswered, PreviouslyAnswered;
+
+        public GatewayCounters ToCounters() => new(
+            Configured, Good, Uncertain, Bad, Waiting, NeverAnswered, PreviouslyAnswered);
+    }
+
+    private static void Count(TagState state, Tally total, Tally? source)
+    {
+        total.Configured++;
+        if (source is not null) source.Configured++;
+
+        switch (state.Quality.Master)
+        {
+            case QualityMaster.Good:
+                total.Good++; if (source is not null) source.Good++; break;
+            case QualityMaster.Uncertain:
+                total.Uncertain++; if (source is not null) source.Uncertain++; break;
+            default:
+                total.Bad++; if (source is not null) source.Bad++; break;
+        }
+
+        // Al arranque todos los tags estan en este estado. Contarlos como
+        // mudos dispararia un diagnostico de falla en cada inicio.
+        if (state.Quality.Substatus == QualitySubstatus.BadWaitingForInitialData)
+        {
+            total.Waiting++;
+            if (source is not null) source.Waiting++;
+            return;
+        }
+
+        // Mudo = no se esta refrescando, que no es lo mismo que tener mala
+        // calidad. Un tag que llega Uncertain porque el sensor esta fuera de
+        // rango esta contestando bien; contarlo aca diagnosticaria una caida
+        // donde solo hay ruido de proceso. Solo cuentan los dos casos en que
+        // no llega dato: los Bad (rechazado, no conectado, no convierte) y
+        // el Uncertain que la propia cache fabrica por antiguedad.
+        var silent = state.Quality.Master is QualityMaster.Bad or QualityMaster.Error
+                     || state.Quality.Substatus == QualitySubstatus.UncertainLastUsableValue;
+
+        if (!silent) return;
+
+        // ScaledValue solo se puebla con una muestra utilizable y ningun
+        // camino lo vuelve a null: que no sea null significa que este tag
+        // contesto alguna vez. Ese es todo el discriminante.
+        if (state.ScaledValue is null)
+        {
+            total.NeverAnswered++;
+            if (source is not null) source.NeverAnswered++;
+        }
+        else
+        {
+            total.PreviouslyAnswered++;
+            if (source is not null) source.PreviouslyAnswered++;
+        }
     }
 
     /// <summary>
     /// Primero manda el vinculo: no tiene sentido preguntarse por el CSV cuando
     /// no hay con quien hablar. Recien con el vinculo sano se mira la proporcion
-    /// interna del bucket de mudos.
+    /// interna del bucket de mudos. Se evalua por fuente, con los tags de esa
+    /// fuente: un CSV mal escrito del lado SQL no dice nada sobre el lado DA.
     /// </summary>
     private static Diagnosis Diagnose(LinkState state, GatewayCounters c)
     {
-        if (state == LinkState.Stalled) return Diagnosis.DaServerStalled;
-        if (state is LinkState.Disconnected or LinkState.Reconnecting) return Diagnosis.DaLinkDown;
+        if (state == LinkState.Stalled) return Diagnosis.ServerStalled;
+        if (state is LinkState.Disconnected or LinkState.Reconnecting) return Diagnosis.LinkDown;
 
         var silent = c.SilentTotal;
         if (silent == 0) return Diagnosis.Healthy;
@@ -231,7 +286,7 @@ public sealed record GatewaySnapshot(
             return Diagnosis.LikelyCsvMismatch;
 
         if ((double)c.SilentPreviouslyAnswered / silent >= AttributionThreshold)
-            return Diagnosis.DaServerRepopulatedEmpty;
+            return Diagnosis.ServerRepopulatedEmpty;
 
         return Diagnosis.Indeterminate;
     }

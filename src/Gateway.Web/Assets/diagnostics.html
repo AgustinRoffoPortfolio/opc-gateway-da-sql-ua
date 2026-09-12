@@ -61,22 +61,26 @@
 </nav>
 
 <section id="view-op">
-  <div class="card">
-    <div class="light">
-      <span class="dot idle" id="dot"></span>
-      <span class="state" id="linkState">Conectando…</span>
+  <!-- Una tarjeta por fuente, generada en runtime: cuantas hay lo dice el
+       snapshot, no el HTML. Es lo que hace visible que una fuente este caida
+       mientras la otra sigue sana. -->
+  <div id="sources">
+    <div class="card">
+      <div class="light">
+        <span class="dot idle"></span>
+        <span class="state">Conectando…</span>
+      </div>
+      <p class="verdict">Esperando el primer ciclo del gateway.</p>
     </div>
-    <p class="verdict" id="verdict">Esperando el primer ciclo del gateway.</p>
-    <p class="hint" id="hint"></p>
   </div>
 
   <div class="card">
-    <h2>Tags</h2>
+    <h2>Tags (todas las fuentes)</h2>
     <div class="grid" id="tagCounters"></div>
   </div>
 
   <div class="card">
-    <h2>Adquisición</h2>
+    <h2>Proceso</h2>
     <div class="grid" id="perfCounters"></div>
   </div>
   <div class="card">
@@ -94,7 +98,7 @@
     </div>
     <table>
       <thead><tr>
-        <th>Tag UA</th><th>Item DA</th><th>Valor</th><th>Calidad</th>
+        <th>Tag UA</th><th>Fuente</th><th>Tag de origen</th><th>Valor</th><th>Calidad</th>
         <th>SourceTimestamp (DA)</th><th>Última lectura (gateway)</th><th>Antigüedad</th>
       </tr></thead>
       <tbody id="rows"></tbody>
@@ -107,24 +111,27 @@
 // Cada diagnostico se traduce a una frase con los contadores que lo generaron
 // al lado: un nombre de enum solo no le dice nada a quien mira la pantalla, y
 // un numero sin su interpretacion tampoco. La segunda linea, cuando existe, es
-// que hacer al respecto.
-function verdict(d, c, s) {
+// que hacer al respecto. Se evalua por fuente: un CSV mal escrito del lado SQL
+// no dice nada sobre el lado DA.
+function verdict(s) {
+  const c = s.counters, l = s.link;
   const n = c.silentNeverAnswered, p = c.silentPreviouslyAnswered, t = c.totalConfigured;
-  switch (d) {
+  const src = SOURCE_ES[l.source] ?? l.source;
+  switch (s.diagnosis) {
     case "Healthy":
-      return [`Los <span class="num">${c.good}</span> de <span class="num">${t}</span> tags configurados responden con calidad buena.`, ""];
-    case "DaLinkDown":
-      return [`Sin vínculo con el servidor DA. Reintentos: <span class="num">${s.reconnectAttempts}</span>.`,
-              s.lastError ? `Último error: ${s.lastError}` : "Verificá que el servidor DA esté corriendo."];
-    case "DaServerStalled":
-      return [`El vínculo está abierto pero el ciclo no vuelve hace <span class="num">${s.secondsSinceLastCycle.toFixed(0)}</span> s.`,
-              "El servidor DA no murió: dejó de contestar. Suele requerir reiniciarlo."];
+      return [`Los <span class="num">${c.good}</span> de <span class="num">${t}</span> tags de esta fuente responden con calidad buena.`, ""];
+    case "LinkDown":
+      return [`Sin vínculo con ${src}. Reintentos: <span class="num">${l.reconnectAttempts}</span>.`,
+              l.lastError ? `Último error: ${l.lastError}` : `Verificá que ${src} esté corriendo.`];
+    case "ServerStalled":
+      return [`El vínculo está abierto pero el ciclo no vuelve hace <span class="num">${(s.secondsSinceLastCycle ?? 0).toFixed(0)}</span> s.`,
+              `${src} no murió: dejó de contestar. Suele requerir reiniciarlo.`];
     case "LikelyCsvMismatch":
       return [`<span class="num">${n}</span> de <span class="num">${t}</span> tags nunca entregaron un dato desde que arrancó el gateway.`,
-              "Esos ItemIDs no existen del otro lado: revisá el CSV de mapeo o que el servidor DA tenga su configuración cargada. Desde adentro del gateway las dos causas son indistinguibles."];
-    case "DaServerRepopulatedEmpty":
+              "Esos nombres no existen del otro lado: revisá el CSV de mapeo o que la fuente tenga su configuración cargada. Desde adentro del gateway las dos causas son indistinguibles."];
+    case "ServerRepopulatedEmpty":
       return [`<span class="num">${p}</span> tags que antes respondían dejaron de hacerlo.`,
-              "El servidor DA sigue en pie pero perdió sus items: el caso del simulador relanzado sin su configuración."];
+              `${src} sigue en pie pero perdió sus items: el caso del simulador relanzado sin su configuración.`];
     case "PartialDegradation":
       return [`<span class="num">${c.silentTotal}</span> de <span class="num">${t}</span> tags mudos; el resto responde bien.`,
               "Son una minoría: no hay una causa global. Mirá cuáles en la vista Detalle."];
@@ -132,12 +139,12 @@ function verdict(d, c, s) {
       return [`<span class="num">${n}</span> nunca respondieron y <span class="num">${p}</span> dejaron de responder.`,
               "Están pasando dos cosas a la vez; el gateway no elige una por vos."];
     default:
-      return [d, ""];
+      return [s.diagnosis, ""];
   }
 }
 
 // El color lo manda el vinculo, pero un diagnostico no-sano lo baja a ambar:
-// COM sano con la mitad de los tags mudos no es verde para quien opera.
+// vinculo sano con la mitad de los tags mudos no es verde para quien opera.
 function color(link, diag) {
   if (link === "Disconnected") return "bad";
   if (link === "Stalled" || link === "Reconnecting") return "warn";
@@ -147,19 +154,45 @@ function color(link, diag) {
 const LINK_ES = { Connected:"Conectado", Disconnected:"Desconectado",
                   Reconnecting:"Reconectando", Stalled:"Sin respuesta" };
 
-function cells(el, pairs) {
-  el.innerHTML = pairs.map(([k, v]) =>
-    `<div class="metric"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+// Los valores son los del enum TagSource de Gateway.Core, serializado como texto.
+const SOURCE_ES = { OpcDa:"el servidor DA", Sql:"la base SQL" };
+const SOURCE_TITLE = { OpcDa:"OPC DA", Sql:"SQL Server" };
+
+const metrics = pairs => pairs.map(([k, v]) =>
+  `<div class="metric"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+
+function cells(el, pairs) { el.innerHTML = metrics(pairs); }
+
+// Una fuente = una tarjeta con su semaforo, su veredicto y sus tiempos de
+// ciclo. Los tiempos viven aca y no en un panel unico porque 1000 ms de DA y
+// decenas de segundos de SQL no promedian a nada util.
+function sourceCard(s) {
+  const [main, hint] = verdict(s);
+  const l = s.link;
+  return `<div class="card">
+    <h2>${esc(SOURCE_TITLE[l.source] ?? l.source)}</h2>
+    <div class="light">
+      <span class="dot ${color(l.state, s.diagnosis)}"></span>
+      <span class="state">${esc(LINK_ES[l.state] ?? l.state)}</span>
+    </div>
+    <p class="verdict">${main}</p>
+    <p class="hint">${esc(hint)}</p>
+    <div class="grid" style="margin-top:16px">${metrics([
+      ["Ciclo hace", (s.secondsSinceLastCycle ?? 0).toFixed(1) + " s"],
+      ["Ciclos", l.readCycles], ["Fallos de lectura", l.readFailures],
+      ["Último ciclo", l.lastCycleMs.toFixed(1) + " ms"],
+      ["Promedio", l.avgCycleMs.toFixed(1) + " ms"],
+      ["Máximo", l.maxCycleMs.toFixed(1) + " ms"],
+      ["Intervalo", l.configuredIntervalMs + " ms"],
+      ["Reconexiones", l.connections]
+    ])}</div>
+  </div>`;
 }
 
 function paint(s) {
-  const [main, hint] = verdict(s.diagnosis, s.counters, s.status);
-  document.getElementById("dot").className = "dot " + color(s.status.linkState, s.diagnosis);
-  document.getElementById("linkState").textContent = LINK_ES[s.status.linkState] ?? s.status.linkState;
-  document.getElementById("verdict").innerHTML = main;
-  document.getElementById("hint").textContent = hint;
+  document.getElementById("sources").innerHTML = s.sources.map(sourceCard).join("");
   document.getElementById("stamp").textContent =
-    `foto ${new Date(s.takenUtc).toLocaleTimeString("es-AR", { hour12: false })} · ciclo hace ${s.status.secondsSinceLastCycle.toFixed(1)} s · en pie ${Math.floor(s.status.uptimeSeconds / 60)} min`;
+    `foto ${new Date(s.takenUtc).toLocaleTimeString("es-AR", { hour12: false })} · en pie ${Math.floor(s.status.uptimeSeconds / 60)} min`;
 
   const c = s.counters;
   cells(document.getElementById("tagCounters"), [
@@ -173,11 +206,6 @@ function paint(s) {
   // workingSetMb llega con la cola binaria del calculo: se recorta al mostrar,
   // no en el dato, para que el JSON siga siendo el numero sin redondear.
   cells(document.getElementById("perfCounters"), [
-    ["Ciclos", c.readCycles], ["Fallos de lectura", c.readFailures],
-    ["Último ciclo", p.lastCycleMs.toFixed(1) + " ms"],
-    ["Promedio", p.avgCycleMs.toFixed(1) + " ms"],
-    ["Máximo", p.maxCycleMs.toFixed(1) + " ms"],
-    ["Intervalo", p.configuredIntervalMs + " ms"],
     ["Sesiones UA", p.connectedUaSessions],
     ["Monitored items", p.monitoredItems],
     ["Memoria", p.workingSetMb.toFixed(1) + " MB"]
@@ -208,11 +236,11 @@ function paint(s) {
 
 // Tres estados distintos y no dos: "todavia no hay dato" (503) no es lo mismo
 // que "no llego la respuesta" (el gateway se cayo o la pagina quedo abierta).
-function waiting(text) {
-  document.getElementById("dot").className = "dot idle";
-  document.getElementById("linkState").textContent = "—";
-  document.getElementById("verdict").textContent = text;
-  document.getElementById("hint").textContent = "";
+function waiting(text, bad) {
+  document.getElementById("sources").innerHTML =
+    `<div class="card"><div class="light">
+       <span class="dot ${bad ? "bad" : "idle"}"></span><span class="state">—</span>
+     </div><p class="verdict">${esc(text)}</p></div>`;
 }
 
 async function poll() {
@@ -222,8 +250,7 @@ async function poll() {
     if (!res.ok) { waiting("El gateway respondió con un error: " + res.status); return; }
     paint(await res.json());
   } catch {
-    waiting("Sin respuesta del gateway. ¿Sigue corriendo el proceso?");
-    document.getElementById("dot").className = "dot bad";
+    waiting("Sin respuesta del gateway. ¿Sigue corriendo el proceso?", true);
   }
 }
 
@@ -255,7 +282,8 @@ async function pollTags() {
     document.getElementById("rows").innerHTML = page.rows.map(r => `
       <tr>
         <td class="name">${esc(r.uaName)}</td>
-        <td class="name">${esc(r.daName ?? "—")}</td>
+        <td>${esc(r.source)}</td>
+        <td class="name">${esc(r.sourceTag ?? "—")}</td>
         <td>${r.scaledValue === null ? "—" : esc(r.scaledValue)}</td>
         <td class="q-${esc(r.qualityMaster)}">${esc(r.qualityMaster)}${
             r.qualitySubstatus === r.qualityMaster ? ""

@@ -311,7 +311,7 @@ using var timer = new Timer(_ =>
         {
             var snapshot = GatewaySnapshot.Build(
                 cache,
-                acquisition.GetStatus(),
+                [acquisition.GetStatus()],
                 nodeManager.GetServerStatus(),
                 startedUtc,
                 // La foto de auditoria se toma aca, en el mismo instante que el

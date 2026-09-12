@@ -67,7 +67,7 @@ public sealed class DaAcquisitionService
     /// Esto no destraba la llamada -- para eso hace falta un timeout sobre COM,
     /// que sigue siendo deuda -- pero evita afirmar una salud que no se sabe.
     /// </remarks>
-    public DaLinkStatus GetStatus()
+    public SourceLinkStatus GetStatus()
     {
         var cycles = Interlocked.Read(ref _readCycles);
         var startedTicks = Interlocked.Read(ref _cycleStartedTicks);
@@ -75,7 +75,8 @@ public sealed class DaAcquisitionService
 
         var state = DetermineState(startedTicks);
 
-        return new DaLinkStatus(
+        return new SourceLinkStatus(
+            TagSource.OpcDa,
             State: state,
             LastSuccessfulCycleUtc: lastGoodTicks == 0
                 ? null

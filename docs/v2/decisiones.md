@@ -178,3 +178,51 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 **Cómo se resuelve el choque C1.** El requisito pide tratar usuario y password como parámetros de configuración más, y lo son: tienen su clave en el JSON igual que el puerto. Los estándares del portfolio prohíben versionar credenciales, y no se versiona ninguna. Ninguna de las dos partes cede. Si más adelante se pide el valor escrito en el JSON del repositorio, gana el requisito y esta decisión queda anotada como revertida.
 
 **Fuera de alcance.** El tratamiento definitivo (cifrado de la configuración, autenticación de Windows, gestor de secretos) está explícitamente pospuesto.
+
+---
+
+### V2-8 — Dónde vive el driver SQL y qué referencia
+
+**Decisión.** Proyecto nuevo `src/Gateway.Sql`, espejo estructural de `Gateway.Da`: referencia de proyecto a `Gateway.Core` y paquete `Microsoft.Data.SqlClient`, nada más. No referencia a `Gateway.Da` ni al revés. `Gateway.Host` sigue sin referenciar el paquete SQL: solo referencia el proyecto.
+
+**Por qué un proyecto propio y no dentro de `Gateway.Core` o de `Gateway.Host`.** Es el principio 1, y lo que lo hace real es el grafo de referencias, no la disciplina al escribir. `Gateway.Core` lo referencian todos: meter el cliente SQL ahí lo pondría al alcance de `Gateway.Ua` y `Gateway.Web`, que no tienen nada que hacer con él, y el borde dejaría de existir. `Gateway.Host` es todavía peor, porque es exactamente el proyecto que no debe ver un `SqlDataReader`. Con un proyecto aparte, escribir `SqlConnection` fuera del driver no compila.
+
+**Verificación del borde.** La forma de comprobarlo no es leer código sino intentar romperlo: una referencia a un tipo de `Microsoft.Data.SqlClient` desde `Gateway.Host` tiene que fallar el build. Se prueba una vez en la Fase 3 y se anota en `verificacion.md`.
+
+**`TargetFramework` `net10.0`, sin el sufijo `-windows`.** `Gateway.Da` apunta a `net10.0-windows` porque COM solo existe en Windows. Nada del driver SQL toca COM, así que no hereda esa restricción. Dejarlo en `net10.0` documenta en el propio `.csproj` que esta fuente no depende de la plataforma, y deja marcado cuál es el proyecto que ata el gateway a Windows: el DA, no este. Costo cero. `Gateway.Host` sigue siendo el único con `PlatformTarget x86` (principio 7); el driver SQL no fija plataforma y se compila para la del host.
+
+**Qué expone.** `SqlTagSource`, clase pasiva con la misma forma que `OpcDaTagSource`: `Connect()`, `IsConnected`, `ReadAll()` devolviendo `IReadOnlyDictionary<string, TagSample>`, e `IDisposable`. Sin hilos, sin temporizadores, sin política de reintentos adentro. El porqué está en V2-10.
+
+**Pendiente.** El nombre del tipo de opciones (`SqlOptions`, espejo de `DaOptions`) y en qué proyecto vive: `DaOptions` está dentro de `Gateway.Da`, así que por simetría va dentro de `Gateway.Sql`. Se confirma al crear el proyecto en la Fase 3.
+
+---
+
+### V2-9 — Nombre de tabla configurable sin abrir la puerta a inyección
+
+**Decisión.** `Database`, `Schema` y `Table` se validan al arrancar contra una lista blanca —letra o guion bajo inicial, después letras, dígitos o guion bajo, hasta 128 caracteres— y se arman como `[Database].[Schema].[Table]` duplicando cualquier `]` interno. Si alguno no valida, el gateway falla al arrancar con el nombre de la clave y el valor recibido. No se corrige ni se sanitiza: se rechaza.
+
+**Por qué no alcanza con parámetros.** Un parámetro de ADO.NET (`@algo`) ocupa el lugar de un *valor*, no de un identificador. `SELECT * FROM @tabla` no es SQL válido. El nombre de la tabla se arma pegando texto por definición, y pegar texto es el mecanismo de la inyección. Como no se puede evitar la concatenación, lo que se controla es qué se concatena.
+
+**Por qué igual se valida, si el atacante sería quien edita el JSON.** Quien edita `appsettings.json` ya tiene la máquina; no es un anónimo de internet, y por ese lado el riesgo real es bajo. La validación se sostiene por otras dos razones. Una operativa: convierte un typo en un error claro al arrancar, en vez de en un error de sintaxis de SQL treinta segundos más tarde y a través del log del driver. Otra defendible en entrevista: la diferencia entre "es seguro porque nadie malicioso toca el JSON" y "es seguro porque no acepta nada que no sea un identificador". Solo la segunda es una propiedad del código.
+
+**Por qué no `QUOTENAME`.** Delegarle el escape a SQL Server obliga a una consulta extra solo para construir la consulta, y pone la validación del otro lado de la red cuando puede estar acá, antes de abrir la conexión. Los corchetes con `]` duplicado son la misma regla de `QUOTENAME`, aplicada localmente.
+
+**Consecuencia sobre R6.** El requisito pide que la tabla sea configurable, y lo sigue siendo: cualquier identificador legítimo de SQL Server pasa. Lo que queda afuera son nombres con espacios, puntos o caracteres raros, que en esta tabla no existen. Si alguna vez aparece uno, se amplía la lista blanca como decisión nueva, no aflojando la validación en el momento.
+
+**Cierra el pendiente de V2-6** sobre cómo armar `[SCADA_HST].[dbo].[CURR_DATA]` desde tres claves sueltas.
+
+---
+
+### V2-10 — Aislamiento del loop SQL (invariante 8)
+
+**Decisión.** El driver SQL es pasivo y el hilo lo aporta el host, igual que con DA: un `Thread` dedicado, `IsBackground = true`, `Name = "SQL polling"`, sin `SetApartmentState`. La política —cada cuánto consultar, cuándo reconectar, qué hacer con un tag ausente— vive en un `SqlAcquisitionService` dentro de `Gateway.Host`, espejo de `DaAcquisitionService`. La cache es lo único compartido entre los tres hilos: adquisición DA, adquisición SQL y publicación UA.
+
+**Qué se descubrió mirando el código de la v1.** `OpcDaTagSource` no tiene loop, ni hilo, ni `Task`: es sincrónico y pasivo. El `Thread` está en `Program.cs` y el `while` con espera bloqueante, en `DaAcquisitionService`. O sea que el invariante 8 ya estaba implementado para una fuente antes de llamarse así, y el comentario del propio `Program.cs` lo dice: el apartamento MTA que exige COM, y que una lectura DA lenta no frene la publicación UA. Sumar SQL no inventa un patrón: agrega un tercer hilo al que ya existe.
+
+**Por qué un hilo bloqueante y no `async`/`await`.** Es ir a contramano de `Microsoft.Data.SqlClient`, que expone todo en versión `Async`, y conviene decirlo en voz alta. El argumento clásico a favor de `async` es no desperdiciar un hilo del pool esperando E/S, y vale cuando hay miles de operaciones concurrentes. Acá hay tres hilos en total y uno durmiendo treinta segundos no le saca lugar a nadie. Lo que se gana a cambio es un único modelo de concurrencia para las dos fuentes: un solo patrón que explicar, que mantener y que depurar, en vez de dos conviviendo. Si el driver SQL creciera a varias consultas concurrentes, la decisión se revisa.
+
+**Por qué no un hilo compartido que alterne DA y SQL.** Viola el invariante 8 por construcción: una consulta SQL lenta frenaría la lectura DA. Queda descartado.
+
+**El hilo propio no alcanza solo.** Protege a DA de que SQL se demore, pero no protege al hilo SQL de quedar colgado para siempre en una consulta que nunca vuelve. Eso lo cierra el `CommandTimeoutSeconds` de V2-6: con timeout, una consulta trabada termina en excepción, entra al camino de reconexión de R5 y el loop sigue vivo. Sin timeout, el hilo SQL se cuelga callado y los tags SQL se congelan sin que nada lo reporte.
+
+**Qué queda para la Fase 3.** La degradación por antigüedad de la v1 vive en `DaAcquisitionService` y es global (3 ciclos, 3000 ms). Si `SqlAcquisitionService` es un servicio aparte, no la hereda por accidente, que es justo lo que se quiere según lo anotado en la sección C: para los tags SQL la calidad sale de `Q` (P6), no de la antigüedad. Falta escribir esa decisión con su porqué y ver qué reporta el `LinkState` de la fuente SQL.

@@ -87,6 +87,40 @@ public readonly record struct TagQuality(
     public static readonly TagQuality LastUsableValue =
         new(QualityMaster.Uncertain, QualitySubstatus.UncertainLastUsableValue, QualityLimit.NotLimited);
 
+    /// <summary>
+    /// Descompone un codigo de calidad OPC DA crudo (la columna Q de la tabla
+    /// SQL) en los tres campos. El driver DA no la usa: el SDK ya le entrega la
+    /// calidad desarmada. Los valores de los enums son los de la spec, asi que
+    /// decodificar bits es convertir a esos mismos enums, sin tabla aparte.
+    /// <paramref name="unknownSubstatus"/> avisa que el substatus no estaba
+    /// previsto; el log es decision de quien llama, Core no tiene logger.
+    /// </summary>
+    public static TagQuality FromDaCode(int code, out bool unknownSubstatus)
+    {
+        // Se descartan los 8 bits de fabricante (spec Parte 8 A.3.2.3). De paso
+        // cubre el caso de un smallint negativo, que hoy no aparece en la tabla
+        // real pero que rompería en silencio cualquier comparacion contra 192.
+        var bits = code & 0xFF;
+
+        var master = (QualityMaster)(bits & 0b1100_0000);
+        var substatusBits = bits & 0b1111_1100;
+        var limit = (QualityLimit)(bits & 0b0000_0011);
+
+        unknownSubstatus = !Enum.IsDefined<QualitySubstatus>((QualitySubstatus)substatusBits);
+
+        // Un substatus no previsto no invalida la muestra: el master, que es lo
+        // que decide si el dato sirve, sigue siendo valido. El substatus cae al
+        // valor base de su master. Error no tiene substatus propio en la spec:
+        // se conserva el master para que la anomalia quede visible.
+        var substatus = unknownSubstatus
+            ? master == QualityMaster.Error
+                ? QualitySubstatus.Bad
+                : (QualitySubstatus)(bits & 0b1100_0000)
+            : (QualitySubstatus)substatusBits;
+
+        return new TagQuality(master, substatus, limit);
+    }
+
     /// <summary>El valor sirve para transformar (multiplicador y offset).</summary>
     public bool IsUsable =>
         Master is QualityMaster.Good or QualityMaster.Uncertain;

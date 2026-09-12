@@ -370,19 +370,68 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 
 ---
 
-### V2-19 — El decodificador de calidad DA se mueve a `Gateway.Core`
+### V2-19 — Decodificar un código de calidad DA crudo, en `Gateway.Core`
 
-**Decisión.** La descomposición de un código de calidad OPC DA en `TagQuality` (master, substatus, limit) pasa a ser una función pública de `Gateway.Core`, que recibe el código como entero. El driver SQL la usa sobre `Q`. Antes de decodificar se enmascaran los 8 bits de fabricante: se toma el byte bajo, que es lo que la spec indica descartar y lo que además resuelve el `smallint` negativo.
+**Decisión.** La descomposición de un código de calidad OPC DA en `TagQuality`
+(master, substatus, limit) es `TagQuality.FromDaCode(int, out bool)`, pública, en
+`src/Gateway.Core/TagQuality.cs`. El driver SQL la usa sobre `Q`. Antes de
+decodificar se enmascaran los 8 bits de fabricante tomando el byte bajo.
 
-**El hallazgo.** Los enums de calidad ya están en `Gateway.Core`, pero la descomposición del código está en `OpcDaTagSource.Translate`, que es privada y recibe un tipo del SDK de DA. El driver SQL no puede llamarla, y por el principio 1 tampoco debería poder. Como `Q` replica los códigos de OPC DA (P5), el mapeo es exactamente el mismo y duplicarlo sería garantizar que las dos copias se separen con el tiempo. Es el cuarto cambio en `Gateway.Core`, y el más chico: mueve lógica que ya existe a donde las dos fuentes la alcanzan.
+**El hallazgo, corregido al implementar.** La decisión original decía que la
+descomposición estaba en `OpcDaTagSource.Translate` y que había que moverla a
+`Gateway.Core`. Es falso: `Translate` no descompone nada. Recibe `OpcDaQuality`
+del SDK, que **ya viene desarmado** en `Master`, `Status` y `Limit`, y lo único
+que hace es traducir enum del SDK a enum de `Gateway.Core`. La descomposición por
+bits la hace el SDK. Así que en V2-19 no había lógica para mover: hubo que
+**escribir** la decodificación desde un entero, que no existía en el repo.
 
-**El `smallint` negativo.** `Q` es entero con signo de 16 bits. Si alguna vez llega un código con bits de fabricante en el byte alto, el bit 15 lo vuelve negativo y cualquier comparación directa contra 192 falla de forma silenciosa. Enmascarar el byte bajo lo resuelve de raíz y no es un caso especial: es lo que la spec pide hacer siempre, negativo o no.
+**El fundamento se sostiene igual, y mejor.** Los enums de `TagQuality.cs` ya
+tienen los valores numéricos de la especificación (`Good = 192`,
+`BadLastKnown = 20`, `GoodLocalOverride = 216`), así que decodificar bits es
+convertir a esos mismos enums. La tabla de significados no se duplica: hay una
+sola, la del enum, y las dos fuentes llegan a ella por caminos distintos.
 
-**Códigos no previstos.** Si el substatus no corresponde a ninguno de los valores conocidos, se conserva el master —que es la información que importa para decidir— y el substatus cae al valor base de ese master, con un aviso en el log una vez por código. Descartar la muestra entera por un substatus raro sería perder un dato que el master ya califica bien.
+**Pendiente cerrado: `Gateway.Da` no delega.** La decisión original dejaba
+abierto que, si `OpcDaQuality` exponía el código crudo, `Gateway.Da` llamara a la
+misma función para dejar una sola implementación. No conviene aunque lo exponga:
+sería tirar el desarmado que el SDK ya hizo para rehacerlo a mano. `Gateway.Da`
+queda como está, y no hay duplicación real que eliminar.
 
-**Lo que esto confirma.** `QualitySubstatus` ya contiene `BadLastKnown = 20`, que es exactamente el valor que mi padre mencionó para la pérdida de campo (P6). El mapeo de la v1 sirve tal cual, sin agregar valores; lo único que faltaba era poder llamarlo desde el otro driver.
+**El `smallint` negativo, redimensionado.** `calidad-observada.md` mostró que en
+la tabla real no hay valores negativos, así que el enmascarado ya no se justifica
+por un problema observado: se hace porque la spec (Parte 8 A.3.2.3) indica
+descartar siempre los bits de fabricante, y sale gratis. Queda como red por si
+alguna vez cambia el driver de origen — el bit 15 volvería negativo al `smallint`
+y cualquier comparación contra 192 fallaría en silencio. Hay un test que lo cubre.
 
-**Pendiente.** Si `OpcDaQuality` del SDK expone el código crudo, `Gateway.Da` puede delegar en la misma función y quedar una sola implementación. Se verifica en la Fase 3; si no lo expone, `Gateway.Da` queda como está y la duplicación se limita a la traducción del tipo del SDK, no a la tabla de significados.
+**Códigos no previstos.** Si el substatus no corresponde a ningún valor conocido
+se conserva el master —que es la información que decide si el dato sirve— y el
+substatus cae al valor base de ese master. Descartar la muestra entera por un
+substatus raro sería perder un dato que el master ya califica bien.
+
+**El aviso no vive en `Core`.** La decisión original pedía loguear una vez por
+código desconocido. `Gateway.Core` no tiene logger, y "una vez por código"
+exigiría estado estático en un tipo que hoy es una función pura. En su lugar la
+función devuelve `out bool unknownSubstatus` y **decide quien llama**, que sí
+tiene logger. Es la misma forma que usa el resto de la API de .NET para esto.
+
+**`QualityMaster.Error` se conserva.** El master `Error` (128) está reservado por
+la spec y no tiene ningún `QualitySubstatus` correspondiente, así que la regla
+anterior no tiene a dónde caer. Se publica con `Master = Error` y
+`Substatus = Bad`, en vez de aplanarlo a `Bad`. El motivo es que ese camino ya
+existe: `Translate` puede producir `QualityMaster.Error` desde el lado DA hoy.
+Aplanarlo solo del lado SQL haría que la misma anomalía se viera distinta según
+la fuente.
+
+**Lo que esto confirma.** `QualitySubstatus` ya contenía `BadLastKnown = 20`, el
+valor que mi padre mencionó para la pérdida de campo (P6), y los otros cuatro
+códigos que `calidad-observada.md` encontró en la tabla. El mapeo de la v1 sirve
+tal cual, sin agregar valores.
+
+**Evidencia.** `tests/Gateway.Tests/TagQualityTests.cs`, 14 tests: los cinco
+códigos reales de la tabla, todo substatus del enum decodificable desde su propio
+código, los dos bits de limit, el código negativo con bits de fabricante, tres
+substatus no previstos y el caso `Error`.
 
 ---
 

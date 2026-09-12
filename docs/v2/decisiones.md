@@ -292,3 +292,64 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 **Tercer cambio en `Gateway.Core`, y el de más superficie.** A diferencia de V2-11 y V2-12, este toca lo que el gateway le muestra al mundo: nodos UA de diagnóstico y la página web. Va al reporte de cierre junto con los otros dos, y es el que mejor ilustra el patrón común: lo que no aguantó el agregado de una segunda fuente no fueron los tipos de dato compartidos, sino las estructuras que decían "el" vínculo, "el" umbral, "el" nombre de origen, en singular, porque cuando se escribieron había uno solo.
 
 **Pendiente.** Cómo se identifica una fuente en el snapshot y en el nombre del nodo UA (un enum de origen, el mismo valor que usa la columna `SOURCE` del CSV, u otra cosa), y si el node manager arma la rama de diagnóstico por fuente de forma dinámica o con las dos fuentes conocidas. Se cierra en la Fase 4, al integrar.
+
+---
+
+### V2-14 — `V` se publica como `Float`, tipo nuevo del enum
+
+**Decisión.** `TagDataType` suma `Float`. Un tag SQL analógico lo declara en la columna `DATA_TYPE` del CSV y se publica como `Float` en UA. `TryScale` suma un caso que reusa `TryToDouble`, aplica `Multiplier` y `Offset` en `double` y castea a `float` al final. El valor queda disponible también para filas DA: nada obliga a usarlo, y los tags DA existentes siguen con el tipo que ya declaran.
+
+**El hecho.** `V` es `real` en SQL Server: float de 4 bytes, unos 7 dígitos significativos (P1). `Double` en UA tiene unos 15. Convertir de uno a otro es exacto y no pierde nada del dato. Lo que se pierde es la información de cuántos de esos dígitos significan algo: un valor que en la tabla es 8009.57 publicado como `Double` se ve como 8009.570068359375. Ninguno de los dígitos de más existe en la medición; son la representación exacta de un `float`, mostrada con la precisión de un `double`.
+
+**Por qué no publicar como `Double` y listo.** Era la opción de cero costo: el caso ya existe en el `switch` y `Double` no pierde información. Se descarta porque el gateway no le miente al cliente en ningún otro lado —no inventa `SourceTimestamp` (principio 2), publica `Uncertain` en vez de `Bad` ante una duda (principio 3), publica los nodos de diagnóstico en `Good` y pone la falla en el valor (principio 4)— y esto sería la única excepción. Un cliente que lee `Float` sabe cuántos dígitos tiene sentido mostrar; uno que lee `Double` no tiene de dónde deducirlo.
+
+**Por qué no redondear a 7 dígitos y publicar `Double`.** Es la opción que parece prolija y es la que más distorsiona. Fabrica un número que no es ni el que está en la base ni el que corresponde al tipo, y el redondeo caería después de `Multiplier` y `Offset`, con lo cual el criterio de "7 dígitos significativos" ya no se refiere al dato de origen sino al resultado de una cuenta.
+
+**Orden de las operaciones.** El escalado se hace en `double` y el cast a `float` va al final. Calcular en la precisión alta y bajar recién al publicar evita acumular error en la propia cuenta, que es un problema distinto del de la precisión del dato de origen.
+
+**Costo.** Un valor más en el enum y un caso en `TryScale` que se apoya en el mismo `TryToDouble` y el mismo escalado que `Double` e `Int32`. El `switch` es código compartido con DA, así que el caso nuevo queda a la vista de las dos fuentes; es el costo asumido de tener la conversión en un solo lugar.
+
+---
+
+### V2-15 — Un `Boolean` puede llegar como número
+
+**Decisión.** El caso `Boolean` de `TryScale` deja de exigir que el valor sea un `bool` de .NET y acepta también numérico: **0 es `false`, cualquier otro valor es `true`**. `Multiplier` y `Offset` no se aplican a un `Boolean`, y eso queda explícito en el código.
+
+**El problema.** Hoy el caso `Boolean` devuelve `false` si el valor no es literalmente un `bool`. Desde DA funciona porque el servidor entrega un `VT_BOOL` que el SDK materializa como booleano. Desde SQL, `V` es `real` y un booleano llegaría como 0 o 1 en esa misma columna (P2), así que un tag SQL declarado `Boolean` nunca se actualizaría — y fallaría en silencio, porque `TryScale` devolviendo `false` no distingue un tipo mal declarado de un valor imposible.
+
+**Por qué se arregla en el `switch` y no en el driver.** La alternativa era que el driver SQL convirtiera a `bool` antes de entregar la muestra. Se descarta porque el tipo lo declara la definición del tag en el CSV, no la fuente: el driver tendría que leer definiciones para saber qué convertir, y eso le suma al borde una responsabilidad que hoy no tiene. El driver entrega lo que la tabla contiene; interpretar qué significa es de la cache.
+
+**Por qué no prohibir `Boolean` en filas SQL.** Era la opción más barata y hoy no rompería nada, porque mi padre confirmó que son todos analógicos (P2). Se descarta porque la restricción sería arbitraria: el día que aparezca un booleano en la tabla, el arreglo es exactamente este, y mientras tanto el validador del CSV estaría rechazando algo que el gateway puede manejar. La suposición de que un booleano llega materializado es heredada de tener una sola fuente cuyo SDK ya lo entregaba así; un gateway que traduce entre mundos tiene que aceptar la representación que cada mundo usa, y en el mundo del proceso un booleano es 0 y distinto de 0 desde siempre.
+
+**Por qué "distinto de 0" y no "1 exactamente".** Es la convención universal y evita descartar un valor que llegue como 0,9999 por una conversión o un escalado intermedio. Tratar todo lo que no sea 0 ni 1 como inválido agregaría un modo de falla sin agregar información.
+
+**Pendiente heredado, que esta decisión no crea ni resuelve.** `TryScale` devolviendo `false` no distingue "tipo mal declarado" de "valor imposible", y el tag simplemente no se actualiza. Es deuda de la v1; con dos fuentes se vuelve más fácil de tropezar, pero se deja como está para no ampliar el alcance.
+
+---
+
+### V2-16 — `V` o `Q` en `NULL` se publican como `Uncertain`
+
+**Decisión.** Las dos columnas admiten nulo (P1) y las dos se publican como `Uncertain`, nunca como `Bad`, pero se tratan distinto en lo demás:
+
+- **`V` en `NULL`:** no hay medición. Se conserva el último valor bueno y su `SourceTimestamp` —que no avanza aunque `TS` haya cambiado, porque no hay dato nuevo que fechar— y solo se degrada la calidad.
+- **`Q` en `NULL`:** hay medición pero no hay código de calidad que mapear. El valor y el `SourceTimestamp` se actualizan normalmente; lo único que sale como `Uncertain` es la calidad.
+
+**Por qué `Uncertain` y no `Bad`.** Es el principio 3, y acá aplica de manera casi literal: `Bad` no transporta valor y le borra al cliente el último dato bueno, mientras que un `NULL` es exactamente una duda y no una certeza de que el dato esté mal. Con `Uncertain`, el operador sigue viendo el último valor conocido y sabe que no lo tome como fresco, que es más información que una pantalla en blanco.
+
+**Por qué el `SourceTimestamp` no avanza con `V` en `NULL`.** Avanzarlo afirmaría que hay una medición de ese instante, y no la hay. Es el mismo criterio con el que la v1 arranca los tags con `SourceTimestamp` en default en vez de en la hora actual: un tag sin dato no tiene momento de origen.
+
+**Pendiente, que se suma al de V2-11.** Si `V` viene `NULL` de forma permanente, el tag queda indefinidamente mostrando un valor viejo en `Uncertain`, y como los tags SQL no degradan por antigüedad (V2-11), nada lo empeora nunca. Es el mismo hueco que el tag SQL que jamás recibe su primera muestra. Los dos casos se resuelven juntos, junto con la definición de qué cubre exactamente el tag ausente de P9.
+
+---
+
+### V2-17 — El cruce de nombres respeta la semántica de cada fuente
+
+**Decisión.** El índice de la cache compara los nombres de origen según la fuente: **insensible a mayúsculas para SQL** (`OrdinalIgnoreCase`) y **sensible para DA**, como hasta hoy. La parte de origen de la clave compuesta de V2-12 se compara siempre de forma exacta. Se implementa con un comparador propio para la clave compuesta, de unas pocas líneas, no con estructuras separadas.
+
+**El choque.** SQL Server, con su collation habitual, no distingue mayúsculas: para la base, `TIC101.PV` y `tic101.pv` son el mismo nombre, y como `TAG` es clave primaria (P1), la tabla no puede contener las dos filas. Un `Dictionary<string, ...>` de .NET con el comparador por defecto sí las distingue. Si el CSV declara `TIC101.PV` y la tabla tiene `Tic101.Pv`, el `TryGetValue` de `Update` falla y el tag queda tratado como ausente — hoy en silencio, por el `continue` que descarta muestras no declaradas.
+
+**Por qué no se extiende a DA.** OPC DA sí distingue mayúsculas en los `ItemID`, y hay servidores con items que difieren solo en eso. Un comparador insensible del lado DA podría colapsar dos items legítimamente distintos en uno, que es un error peor y más difícil de ver que el que se quería arreglar. No hay una respuesta única correcta acá: cada fuente tiene la semántica de su propio mundo y el gateway respeta la de cada una. Que esto se pueda hacer sin contorsiones es consecuencia directa de V2-12, porque la clave ya lleva el origen adentro.
+
+**Por qué no dejarlo sensible y documentarlo.** Era la opción de costo cero. Se descarta porque convierte un problema de mayúsculas en un tag que no funciona sin explicar por qué: el operador ve un tag en `Bad` y no tiene forma de deducir que la causa es la capitalización de una letra en un CSV.
+
+**Detalle de implementación.** Un `Dictionary` tiene un único comparador para toda la clave, así que el comparador de la clave compuesta es el que decide: compara el origen de forma exacta y el nombre según la regla de ese origen. La forma exacta se cierra en la Fase 3, junto con la forma de la clave de V2-12.

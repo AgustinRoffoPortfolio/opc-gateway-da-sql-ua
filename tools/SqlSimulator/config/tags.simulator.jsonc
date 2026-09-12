@@ -1,0 +1,38 @@
+// Catalogo de tags de la base simulada. Cada tag tiene un grupo de scan (P7)
+// y un modelo de senal determinista: el valor es funcion del tiempo, nunca
+// un numero al azar (estandares seccion 5).
+{
+  // Codigos de calidad OPC DA. Configurables porque falta confirmar con
+  // que valores trabaja la tabla real (hueco de R7).
+  // Codigos de calidad OPC DA confirmados contra la tabla real (R7).
+  // Proporciones observadas: 192 el 80%, 20 el 18%, el resto marginal.
+  "goodQuality": 192,
+  "lastKnownValueQuality": 20,
+  "commFailureQuality": 24,
+  "localOverrideQuality": 216,
+  "uncertainQuality": 64,
+
+  // Cada cuanto el loop revisa que grupos vencieron.
+  "tickMs": 500,
+
+  // Periodo de refresco de cada grupo, en milisegundos. Misma unidad que
+  // la columna SCAN_RATE_MS del CSV de la v1.
+  "scanGroups": [
+    { "name": "RAPIDO", "periodMs": 2000 },
+    { "name": "MEDIO", "periodMs": 10000 },
+    { "name": "LENTO", "periodMs": 60000 }
+  ],
+
+  // model: "Sine" oscila, "Ramp" crece sin parar, "Steady" se queda quieto.
+  // baseValue es el centro; amplitude y ratePerSecond, segun el modelo.
+  "tags": [
+    { "name": "PLANTA_01_MEDICION_PRESION_ENTRADA",   "scanGroup": "RAPIDO", "model": "Sine",   "baseValue": 12.5,  "amplitude": 0.8,  "periodSeconds": 120 },
+    { "name": "PLANTA_01_MEDICION_PRESION_SALIDA",    "scanGroup": "RAPIDO", "model": "Sine",   "baseValue": 9.2,   "amplitude": 0.5,  "periodSeconds": 90 },
+    { "name": "PLANTA_01_MEDICION_TEMPERATURA_SALIDA","scanGroup": "MEDIO",  "model": "Sine",   "baseValue": 68.0,  "amplitude": 3.0,  "periodSeconds": 600 },
+    { "name": "PLANTA_01_MEDICION_CAUDAL_TOTALIZADO", "scanGroup": "MEDIO",  "model": "Ramp",   "baseValue": 1000.0, "ratePerSecond": 0.25 },
+    { "name": "PLANTA_02_MEDICION_NIVEL_TANQUE",      "scanGroup": "MEDIO",  "model": "Sine",   "baseValue": 45.0,  "amplitude": 12.0, "periodSeconds": 900 },
+    { "name": "PLANTA_02_ESTADO_BOMBA_01",            "scanGroup": "RAPIDO", "model": "Steady", "baseValue": 1.0 },
+    { "name": "PLANTA_02_MEDICION_HORAS_MARCHA",      "scanGroup": "LENTO",  "model": "Ramp",   "baseValue": 8400.0, "ratePerSecond": 0.000278 },
+    { "name": "PLANTA_02_MEDICION_DENSIDAD",          "scanGroup": "LENTO",  "model": "Sine",   "baseValue": 0.86,  "amplitude": 0.01, "periodSeconds": 1800 }
+  ]
+}

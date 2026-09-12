@@ -421,3 +421,36 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 **Aviso y no error.** Un valor heredado de copiar una fila DA es un descuido, no una configuración inválida, y rechazar la fila dejaría un tag fuera de servicio por algo que no afecta el comportamiento. El aviso alcanza para que se corrija.
 
 **Pendiente.** Falta confirmar en la Fase 3 si `DEADBAND` tiene efecto en el camino de publicación de la v1. Si actúa sobre la publicación y no sobre la adquisición, aplica igual a las dos fuentes y esta decisión solo cubre su lectura como parámetro de adquisición.
+
+---
+
+### V2-23 — Una fuente SQL caída no se detecta por antigüedad
+
+**Decisión.** Cuando la aplicación de origen pierde el campo, el gateway se entera
+por `Q` y solo por `Q`. El `TS` de una fila degradada sigue avanzando, así que la
+antigüedad del dato no dice nada sobre su validez. El simulador reproduce ese
+comportamiento a propósito: al cortar un grupo, congela `V`, pone `Q` en 20 y deja
+que `TS` siga refrescándose.
+
+**Por qué es así.** La aplicación que escribe `CURR_DATA` sigue viva y sigue
+pisando la fila; lo que se cayó es el campo, un nivel más abajo. Congelar también
+el `TS` sería simular que la aplicación murió, que es otra falla distinta y que se
+detecta de otra manera. P6 es explícito: la pérdida de campo se marca en la calidad.
+
+**La evidencia.** Verificado en la Fase 2 con el simulador corriendo. Con el grupo
+RAPIDO cortado, sus tres tags quedaron en `Q = 20` con el `TS` **más nuevo de toda
+la tabla** (16:43:00 contra 16:42:55 de los tags sanos). Un tag con la calidad rota
+y el timestamp más fresco que los sanos: cualquier lógica que infiriera la falla
+por antigüedad lo habría dado por bueno.
+
+**Qué implica.** Refuerza V2-11. Haber vuelto el umbral de antigüedad configurable
+por tag es lo que permite que los tags SQL no lo usen, y esta decisión dice por qué
+ahí no aplicarlo no es una simplificación conveniente sino la única lectura correcta
+del dato.
+Un umbral de antigüedad aplicado a esta fuente no detectaría la falla real y, peor,
+degradaría tags sanos que solo esperan su próximo ciclo de scan.
+
+**Lo que no cubre.** Que la aplicación de origen muera y deje de escribir la tabla
+entera es un escenario distinto, con `TS` congelado y `Q` en el último valor bueno.
+No está decidido cómo se detecta ni si hace falta. Se evalúa en la Fase 5, donde
+"base caída" ya es uno de los escenarios.

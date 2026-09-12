@@ -10,6 +10,50 @@ public enum TagDataType
     String
 }
 
+/// De donde sale el valor de un tag. Se declara en la columna SOURCE del CSV
+/// y no tiene default: un tag mal clasificado se ve desde OPC UA igual que una
+/// fuente caida, asi que es mas barato que falle la carga (V2-5).
+public enum TagSource
+{
+    OpcDa,
+    Sql
+}
+
+/// Identifica un tag dentro del universo de todas las fuentes. El nombre de
+/// origen solo no alcanza: los dos origenes vienen del mismo mundo y es
+/// razonable que un ItemID de DA y una fila de CURR_DATA se llamen igual, y sin
+/// el origen adentro de la clave una fuente escribiria sobre los tags de la
+/// otra (V2-12).
+///
+/// Es record struct y no tupla porque los miembros se leen por nombre en todos
+/// los usos; y struct y no clase porque se construye una vez por muestra por
+/// ciclo -miles por ciclo con la tabla entera- y asi no genera basura.
+public readonly record struct TagKey(TagSource Source, string SourceTag);
+
+/// Comparador de TagKey que respeta la semantica de nombres de cada fuente
+/// (V2-17): SQL Server no distingue mayusculas, OPC DA si.
+///
+/// Un Dictionary tiene un unico comparador para toda la clave, asi que la
+/// decision por fuente tiene que vivir aca adentro y no en dos estructuras
+/// separadas. El origen siempre se compara exacto.
+public sealed class TagKeyComparer : IEqualityComparer<TagKey>
+{
+    public static readonly TagKeyComparer Instance = new();
+
+    private TagKeyComparer() { }
+
+    private static StringComparer ComparerFor(TagSource source) =>
+        source == TagSource.Sql ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    public bool Equals(TagKey x, TagKey y) =>
+        x.Source == y.Source && ComparerFor(x.Source).Equals(x.SourceTag, y.SourceTag);
+
+    // El hash tiene que ser consistente con Equals: si dos claves SQL que
+    // difieren en mayusculas son iguales, tienen que caer en el mismo bucket.
+    public int GetHashCode(TagKey key) =>
+        HashCode.Combine(key.Source, ComparerFor(key.Source).GetHashCode(key.SourceTag));
+}
+
 /// Nivel de acceso de un tag en el gateway. Acotado a mostrar u ocultar:
 /// el gateway es de solo lectura hasta Fase 8, asi que esto nunca habilita
 /// escritura, solo si el tag se publica o no como nodo UA.
@@ -23,7 +67,8 @@ public enum TagAccessLevel
 /// todavia construyen un TagDefinition solo con los cinco campos originales.
 public sealed record TagDefinition(
     string OpcUaName,
-    string OpcDaName,
+    TagSource Source,
+    string SourceTag,
     TagDataType DataType,
     double Multiplier,
     double Offset,

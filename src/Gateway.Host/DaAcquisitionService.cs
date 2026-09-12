@@ -211,7 +211,7 @@ public sealed class DaAcquisitionService
         _lastError = null;
         Interlocked.Increment(ref _connections);
 
-        var pending = TryAddItems(source, _cache.DaNames);
+        var pending = TryAddItems(source, _cache.SourceTags(TagSource.OpcDa));
 
         Log.Information("Driver DA conectado a {ProgId}, leyendo cada {Ms} ms",
             _options.ProgId, _options.UpdateRateMs);
@@ -229,7 +229,7 @@ public sealed class DaAcquisitionService
             var cycleWatch = Stopwatch.StartNew();
             try
             {
-                _cache.Update(source.ReadAll());
+                _cache.Update(TagSource.OpcDa, source.ReadAll());
             }
             finally
             {
@@ -320,7 +320,7 @@ public sealed class DaAcquisitionService
         // configuracion.
         var quality = firstAttempt ? TagQuality.NotConnected : TagQuality.ItemRejected;
 
-        _cache.Update(rejected.ToDictionary(
+        _cache.Update(TagSource.OpcDa, rejected.ToDictionary(
             itemId => itemId,
             _ => TagSample.NoData(quality)));
 

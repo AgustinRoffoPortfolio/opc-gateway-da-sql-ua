@@ -17,7 +17,11 @@ namespace Gateway.Core;
 /// </param>
 public sealed record TagDiagnosticsRow(
     string UaName,
-    string DaName,
+    // La fuente va en su propio campo y no concatenada al nombre: la vista la
+    // usa como columna filtrable, y con dos fuentes el nombre de origen solo
+    // no dice donde esta buscando el gateway ese tag.
+    string Source,
+    string SourceTag,
     string? ScaledValue,
     string QualityMaster,
     string QualitySubstatus,
@@ -68,7 +72,8 @@ public static class TagDiagnosticsQuery
 
             matching.Add(new TagDiagnosticsRow(
                 uaName,
-                cache.GetDaName(uaName) ?? string.Empty,
+                cache.GetSourceKey(uaName)?.Source.ToString() ?? string.Empty,
+                cache.GetSourceKey(uaName)?.SourceTag ?? string.Empty,
                 Format(state.ScaledValue),
                 state.Quality.Master.ToString(),
                 state.Quality.Substatus.ToString(),

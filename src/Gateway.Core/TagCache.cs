@@ -44,17 +44,20 @@ public readonly record struct TagState(
 /// </remarks>
 public sealed class TagCache
 {
-    // Indexado por nombre DA porque es la clave con la que llegan las muestras.
-    // Es una lista y no una definicion sola: un mismo item DA puede alimentar
-    // varios nodos UA con transformaciones distintas (el mismo caudal en m3/h
-    // y en l/s, por ejemplo). La relacion es uno a muchos.
-    private readonly Dictionary<string, List<TagDefinition>> _definitionsByDaName;
+    // Indexado por el par (origen, nombre de origen), que es la clave con la
+    // que llegan las muestras. El origen entra en la clave porque las dos
+    // fuentes pueden usar el mismo nombre para tags distintos (V2-12), y el
+    // comparador decide como se comparan los nombres de cada una (V2-17).
+    // Es una lista y no una definicion sola: un mismo tag de origen puede
+    // alimentar varios nodos UA con transformaciones distintas (el mismo caudal
+    // en m3/h y en l/s, por ejemplo). La relacion es uno a muchos.
+    private readonly Dictionary<TagKey, List<TagDefinition>> _definitionsByKey;
 
-    // Camino inverso, solo para diagnostico: la relacion DA -> UA es uno a
-    // muchos, pero UA -> DA es uno a uno, asi que se puede indexar directo.
+    // Camino inverso, solo para diagnostico: la relacion origen -> UA es uno a
+    // muchos, pero UA -> origen es uno a uno, asi que se puede indexar directo.
     // Se arma una vez en el constructor y despues no se toca, por eso no es
     // concurrente: el hilo del request solo lee.
-    private readonly Dictionary<string, string> _daNameByUaName;
+    private readonly Dictionary<string, TagKey> _keyByUaName;
 
     // ConcurrentDictionary porque el hilo que lee DA y el que publica UA son
     // distintos: uno escribe mientras el otro lee, sin lock explicito.
@@ -70,17 +73,18 @@ public sealed class TagCache
 
     public TagCache(IEnumerable<TagDefinition> definitions)
     {
-        _definitionsByDaName = definitions
-            .GroupBy(d => d.OpcDaName)
-            .ToDictionary(g => g.Key, g => g.ToList());
+        _definitionsByKey = definitions
+            .GroupBy(d => new TagKey(d.Source, d.SourceTag), TagKeyComparer.Instance)
+            .ToDictionary(g => g.Key, g => g.ToList(), TagKeyComparer.Instance);
 
-        _daNameByUaName = _definitionsByDaName
+        _keyByUaName = _definitionsByKey
             .SelectMany(entry => entry.Value.Select(d => (d.OpcUaName, entry.Key)))
             .ToDictionary(pair => pair.OpcUaName, pair => pair.Key);
 
-        // Indexado por nombre UA y no por nombre DA porque la degradacion se
-        // evalua al leer, y del otro lado siempre se pregunta por nombre UA.
-        _staleAfterByUaName = _definitionsByDaName.Values
+        // Indexado por nombre UA y no por la clave de origen porque la
+        // degradacion se evalua al leer, y del otro lado siempre se pregunta
+        // por nombre UA.
+        _staleAfterByUaName = _definitionsByKey.Values
             .SelectMany(list => list)
             .ToDictionary(d => d.OpcUaName, d => d.StaleAfter);
 
@@ -94,7 +98,7 @@ public sealed class TagCache
         // sin dato no tiene momento de origen, y ponerle "ahora" seria afirmar
         // una frescura que no existe. LastUpdateUtc si arranca ahora, porque es
         // desde este instante que se cuenta cuanto hace que no llega nada.
-        foreach (var definition in _definitionsByDaName.Values.SelectMany(list => list))
+        foreach (var definition in _definitionsByKey.Values.SelectMany(list => list))
             _stateByUaName[definition.OpcUaName] =
                 new TagState(null, TagQuality.WaitingForInitialData, default, now);
     }
@@ -104,16 +108,27 @@ public sealed class TagCache
     /// <summary>Nombres UA de todos los tags configurados.</summary>
     public IEnumerable<string> UaNames => _stateByUaName.Keys;
 
-    /// <summary>ItemIDs a pedirle al servidor DA.</summary>
-    public IEnumerable<string> DaNames => _definitionsByDaName.Keys;
+    /// <summary>
+    /// Nombres de origen de una sola fuente: los ItemIDs a pedirle al servidor
+    /// DA, o los tags a buscar en la tabla SQL.
+    /// </summary>
+    /// <remarks>
+    /// Pide la fuente y no devuelve todo junto porque el consumidor de esta
+    /// lista da de alta items contra su propio servidor. Con los nombres de la
+    /// otra fuente adentro, el servidor DA los rechazaria y quedarian
+    /// reintentandose para siempre contra un servidor legado (V2-12).
+    /// </remarks>
+    public IEnumerable<string> SourceTags(TagSource source) =>
+        _definitionsByKey.Keys.Where(k => k.Source == source).Select(k => k.SourceTag);
 
     /// <summary>
-    /// ItemID DA que alimenta a un nodo UA, o null si el nombre no esta
-    /// configurado. Es para la vista de diagnostico: ver los dos nombres juntos
-    /// es lo que permite decidir si un tag mudo es culpa del CSV o del servidor.
+    /// Fuente y nombre de origen que alimentan a un nodo UA, o null si el
+    /// nombre no esta configurado. Es para la vista de diagnostico: ver los dos
+    /// nombres juntos es lo que permite decidir si un tag mudo es culpa del CSV
+    /// o de la fuente.
     /// </summary>
-    public string? GetDaName(string uaName) =>
-        _daNameByUaName.GetValueOrDefault(uaName);
+    public TagKey? GetSourceKey(string uaName) =>
+        _keyByUaName.TryGetValue(uaName, out var key) ? key : null;
 
     /// <summary>
     /// Estado actual de un tag, ya degradado si dejo de refrescarse. Un tag que
@@ -126,16 +141,22 @@ public sealed class TagCache
             : new TagState(null, TagQuality.UnknownTag, default, DateTime.UtcNow);
 
     /// <summary>
-    /// Incorpora una tanda de muestras del driver DA.
+    /// Incorpora una tanda de muestras de una fuente. Las muestras se cruzan
+    /// solo contra las definiciones de esa fuente.
     /// </summary>
-    public void Update(IReadOnlyDictionary<string, TagSample> samples)
+    /// <remarks>
+    /// El descarte en silencio de una muestra no declarada es, ademas, el
+    /// filtrado que pide R3: el driver SQL entrega la tabla entera y aca se
+    /// queda solo lo que declara el CSV.
+    /// </remarks>
+    public void Update(TagSource source, IReadOnlyDictionary<string, TagSample> samples)
     {
         var now = DateTime.UtcNow;
 
-        foreach (var (daName, sample) in samples)
+        foreach (var (sourceTag, sample) in samples)
         {
-            if (!_definitionsByDaName.TryGetValue(daName, out var definitions))
-                continue;   // el servidor DA mando algo que no pedimos
+            if (!_definitionsByKey.TryGetValue(new TagKey(source, sourceTag), out var definitions))
+                continue;   // la fuente mando algo que no pedimos
 
             // Una muestra puede alimentar varios nodos UA, cada uno con su
             // propia transformacion.

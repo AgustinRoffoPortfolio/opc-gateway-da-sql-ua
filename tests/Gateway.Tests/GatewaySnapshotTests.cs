@@ -10,7 +10,7 @@ public class GatewaySnapshotTests
     private static string DaName(int i) => $"Sim.Tag{i:D3}";
 
     private static TagDefinition Def(int i) =>
-        new(UaName(i), DaName(i), TagDataType.Double, 1.0, 0.0,
+        new(UaName(i), TagSource.OpcDa, DaName(i), TagDataType.Double, 1.0, 0.0,
             StaleAfter: TimeSpan.FromHours(1));
 
     // Ventana larga: estos tests controlan la calidad a mano, no miden degradacion.
@@ -28,7 +28,7 @@ public class GatewaySnapshotTests
         GatewaySnapshot.Build(cache, Link(state), Ua(), T1, UaAuditSnapshot.Empty);
 
     private static void Push(TagCache cache, int i, object? value, TagQuality quality) =>
-        cache.Update(new Dictionary<string, TagSample>
+        cache.Update(TagSource.OpcDa,new Dictionary<string, TagSample>
         {
             [DaName(i)] = new TagSample(value, quality, T1)
         });

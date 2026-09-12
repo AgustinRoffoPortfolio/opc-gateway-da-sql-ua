@@ -40,7 +40,13 @@ internal static class CsvTagLoader
             {
                 var tag = new TagDefinition(
                     OpcUaName: opcUaName,
-                    OpcDaName: fields[1],
+                    // PROVISORIO (Fase 3): el CSV todavia tiene 11 columnas y no
+                    // declara SOURCE. Hasta que la Fase 4 implemente V2-5 completo
+                    // -12 columnas, lectura por cabecera y validacion de SOURCE-
+                    // todo lo que entra por CSV es OPC DA, que es lo unico que
+                    // habia en la v1. No se puede cargar un tag SQL asi.
+                    Source: TagSource.OpcDa,
+                    SourceTag: fields[1],
                     DataType: ParseEnum<TagDataType>(fields[2], "DATA_TYPE"),
                     Multiplier: ParseDouble(fields[3], "MULTIPLICADOR"),
                     Offset: ParseDouble(fields[4], "OFFSET"),

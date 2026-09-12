@@ -15,7 +15,8 @@ services:
       # Edición Developer: funcionalidad completa, solo para desarrollo y pruebas.
       MSSQL_PID: Developer
     ports:
-      - "1433:1433"
+      # Solo loopback: la base no queda expuesta a la red local (principio 6 de la v1).
+      - "127.0.0.1:1433:1433"
     volumes:
       # Volumen con nombre: los datos sobreviven a borrar el contenedor.
       - sqldata:/var/opt/mssql

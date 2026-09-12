@@ -1,11 +1,18 @@
-# Gateway OPC DA → UA
+# Gateway OPC DA + SQL → UA
 
-Expone un OPC DA Server legado detrás de un OPC UA Server moderno, sin tocar ni
-migrar el sistema existente. Actúa como servidor OPC UA hacia los clientes y como
-cliente OPC DA hacia el servidor legado, traduciendo valor, **calidad** y
-**timestamp de origen** entre dos modelos de datos que no coinciden.
+Expone un OPC DA Server legado y una tabla de SQL Server detrás de un mismo OPC UA
+Server moderno, sin tocar ni migrar ninguno de los dos sistemas existentes. Actúa
+como servidor OPC UA hacia los clientes, y como cliente OPC DA y cliente SQL hacia
+los orígenes, traduciendo valor, **calidad** y **timestamp de origen** entre modelos
+de datos que no coinciden.
 
-**Repositorio:** https://github.com/AgustinRoffoPortfolio/opc-gateway-da-ua
+**Repositorio:** https://github.com/AgustinRoffoPortfolio/opc-gateway-da-sql-ua
+
+> **Estado: v2 en desarrollo — Fase 1 (diseño).** Lo que corre hoy es el gateway
+> de la v1, completo y verificado, con la fuente OPC DA como única fuente de datos.
+> La fuente SQL Server está especificada pero **no implementada**: lo que este README
+> documente sobre ella es especificación, no funcionalidad disponible. Las secciones
+> que describen cómo levantar el gateway siguen siendo válidas para la v1.
 
 ## Demo
 

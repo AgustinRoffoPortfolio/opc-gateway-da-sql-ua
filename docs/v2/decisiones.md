@@ -353,3 +353,71 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 **Por qué no dejarlo sensible y documentarlo.** Era la opción de costo cero. Se descarta porque convierte un problema de mayúsculas en un tag que no funciona sin explicar por qué: el operador ve un tag en `Bad` y no tiene forma de deducir que la causa es la capitalización de una letra en un CSV.
 
 **Detalle de implementación.** Un `Dictionary` tiene un único comparador para toda la clave, así que el comparador de la clave compuesta es el que decide: compara el origen de forma exacta y el nombre según la regla de ese origen. La forma exacta se cierra en la Fase 3, junto con la forma de la clave de V2-12.
+
+---
+
+### V2-18 — `TS` se convierte de hora local a UTC
+
+**Decisión.** El driver SQL convierte `TS` a UTC antes de armar la `TagSample`. La zona horaria es un parámetro de configuración (`Sql:TimeZone`), con la zona de la máquina local como default. El `SourceTimestamp` publicado es el resultado de esa conversión; el gateway sigue sin inventar nada (principio 2), solo cambia de referencia un instante que ya venía en el dato.
+
+**Por qué convertir.** `TS` es hora local puesta por la aplicación de origen (P4) y el `SourceTimestamp` de OPC UA es UTC por definición. Publicarlo sin convertir correría los tags SQL respecto de los DA —en Argentina, tres horas— y un cliente que compare timestamps de las dos fuentes vería el dato SQL en el futuro o en el pasado sin explicación. Mi padre condicionó la conversión a que no implique carga de CPU, y no la implica: es una resta de offset sobre unas miles de filas cada 20 a 60 s, con la zona resuelta una vez al arrancar.
+
+**Por qué parámetro y no la zona de la máquina a secas.** Con base simulada local las dos coinciden, pero el servidor real de TEST (P10) puede estar en otra máquina y el gateway correr en otra. Dejarlo como parámetro hace que ese caso se resuelva por configuración, que es el único punto de adecuación previsto. El default evita que haya que configurarlo para el caso normal.
+
+**Detalle que importa.** Un `datetime` de SQL Server llega con `DateTimeKind.Unspecified`. Usar `ToUniversalTime()` sobre eso asume la zona de la máquina en silencio, que es justamente lo que el parámetro existe para no hacer. La conversión tiene que ser explícita contra la zona configurada.
+
+**Horario de verano.** Argentina no lo aplica desde 2009, pero el parámetro admite otras zonas y el caso hay que decidirlo igual. Una hora ambigua (la que se repite al atrasar) se resuelve con el comportamiento por defecto de .NET, que elige el horario estándar. Una hora inexistente (la que se saltea al adelantar) no puede convertirse: se publica la muestra como `Uncertain` y se loguea una vez, porque un timestamp imposible es exactamente una duda, no una certeza de error.
+
+---
+
+### V2-19 — El decodificador de calidad DA se mueve a `Gateway.Core`
+
+**Decisión.** La descomposición de un código de calidad OPC DA en `TagQuality` (master, substatus, limit) pasa a ser una función pública de `Gateway.Core`, que recibe el código como entero. El driver SQL la usa sobre `Q`. Antes de decodificar se enmascaran los 8 bits de fabricante: se toma el byte bajo, que es lo que la spec indica descartar y lo que además resuelve el `smallint` negativo.
+
+**El hallazgo.** Los enums de calidad ya están en `Gateway.Core`, pero la descomposición del código está en `OpcDaTagSource.Translate`, que es privada y recibe un tipo del SDK de DA. El driver SQL no puede llamarla, y por el principio 1 tampoco debería poder. Como `Q` replica los códigos de OPC DA (P5), el mapeo es exactamente el mismo y duplicarlo sería garantizar que las dos copias se separen con el tiempo. Es el cuarto cambio en `Gateway.Core`, y el más chico: mueve lógica que ya existe a donde las dos fuentes la alcanzan.
+
+**El `smallint` negativo.** `Q` es entero con signo de 16 bits. Si alguna vez llega un código con bits de fabricante en el byte alto, el bit 15 lo vuelve negativo y cualquier comparación directa contra 192 falla de forma silenciosa. Enmascarar el byte bajo lo resuelve de raíz y no es un caso especial: es lo que la spec pide hacer siempre, negativo o no.
+
+**Códigos no previstos.** Si el substatus no corresponde a ninguno de los valores conocidos, se conserva el master —que es la información que importa para decidir— y el substatus cae al valor base de ese master, con un aviso en el log una vez por código. Descartar la muestra entera por un substatus raro sería perder un dato que el master ya califica bien.
+
+**Lo que esto confirma.** `QualitySubstatus` ya contiene `BadLastKnown = 20`, que es exactamente el valor que mi padre mencionó para la pérdida de campo (P6). El mapeo de la v1 sirve tal cual, sin agregar valores; lo único que faltaba era poder llamarlo desde el otro driver.
+
+**Pendiente.** Si `OpcDaQuality` del SDK expone el código crudo, `Gateway.Da` puede delegar en la misma función y quedar una sola implementación. Se verifica en la Fase 3; si no lo expone, `Gateway.Da` queda como está y la duplicación se limita a la traducción del tipo del SDK, no a la tabla de significados.
+
+---
+
+### V2-20 — Cómo se cumple R5 sobre ADO.NET
+
+**Decisión.** El driver mantiene una única instancia de conexión abierta durante toda su vida, que es la lectura literal de R5. Ante cualquier falla de la consulta: se descarta la conexión, se espera `ReconnectDelaySeconds` y se crea una nueva. El pooling se deshabilita explícitamente en la cadena de conexión.
+
+**El matiz que había que resolver.** En ADO.NET lo idiomático es abrir y cerrar por consulta y dejar que el pool mantenga viva la conexión física. Observable desde afuera, las dos formas se parecen mucho. Se elige la conexión única porque acá hay exactamente un consumidor —el hilo dedicado de V2-10—, y el beneficio del pool es repartir conexiones físicas entre consumidores concurrentes que no existen. Sin ese beneficio, la conexión única cumple el requisito al pie de la letra y deja el modelo sin ambigüedad.
+
+**Por qué deshabilitar el pooling.** Si el pooling queda activo, una conexión que falló puede volver al pool y entregarse otra vez, y `LinkState` pasaría a reportar sobre un objeto que no controla el estado real. Con pooling desactivado, el ciclo de vida de la conexión física coincide con lo que el driver cree que está pasando, y eso es lo que hace honesto el diagnóstico de V2-13. El costo es un handshake completo en cada reconexión, que ocurre solo cuando ya hubo una falla.
+
+**Detección.** Una conexión no se entera de que se cayó la red hasta que falla una operación. Eso no es una limitación de esta decisión sino de cualquiera: "reconectar cuando falla una consulta" es el mecanismo real de detección, y con polling de 20 a 60 s el peor caso de detección es un ciclo. Se contrasta con los números medidos en la Fase 5.
+
+**No hay choque con R5.** El requisito pide conexión única, persistente y con reconexión automática espaciada, y eso es exactamente lo que se implementa.
+
+---
+
+### V2-21 — Tag SQL sin dato: los tres casos
+
+**Decisión.** Se cierran juntos los pendientes acumulados de V2-11 y V2-16, porque son tres situaciones distintas que se venían confundiendo:
+
+- **Tag declarado en el CSV que no aparece en el resultado de la consulta.** Es un error de configuración: el tag existe de este lado y no del otro. Se publica `Bad` con substatus de error de configuración, que es la misma forma que ya usa `ItemRejected` para un `ItemID` que el servidor DA rechaza, y se loguea **una vez por tag y por sesión**, no en cada ciclo: a 20 segundos de polling, avisar siempre inunda el log y esconde lo que importa. Esto es lo que P9 pide.
+- **Tag presente con `V` en `NULL` de forma permanente.** Queda en `Uncertain` indefinidamente, y está bien que quede así. La fila existe, el origen la está escribiendo, y lo único que falta es el valor. `Uncertain` con el último valor bueno es la descripción exacta de esa situación, y como los tags SQL no degradan por antigüedad (V2-11), nada la empeora con el tiempo. No hace falta un mecanismo nuevo.
+- **Tag que nunca recibió su primera muestra.** Deja de ser un caso propio. Si el tag no está en la tabla, cae en el primero. Si está, la primera consulta ya lo trae y sale de `WaitingForInitialData` en el primer ciclo. El estado eterno que preocupaba en V2-11 no puede ocurrir.
+
+**Por qué `Bad` acá y `Uncertain` allá, sin contradecir el principio 3.** Un tag que no existe en la tabla no tiene ningún valor bueno anterior que `Bad` pueda borrar, así que el argumento del principio no aplica; y la causa —configuración— manda a revisar el CSV en lugar de la red, que es información útil. Un tag que existe y momentáneamente no trae valor sí tiene historia que preservar, y ahí `Uncertain` es lo correcto.
+
+---
+
+### V2-22 — `SCAN_RATE_MS` y `DEADBAND` en filas SQL
+
+**Decisión.** En una fila con `SOURCE=SQL` los dos quedan en su default y el gateway los ignora como parámetros de adquisición. El validador del CSV avisa si vienen distintos de cero, sin rechazar la fila.
+
+**Por qué.** El ritmo de una fila SQL no lo elige el gateway: lo elige la aplicación de origen, con intervalos distintos por grupo de scan (P7), y el gateway lo único que controla es cada cuánto consulta la tabla entera (R4). Declarar un `SCAN_RATE_MS` por tag afirmaría un control que no existe. Ya quedó descartado en V2-11 derivar de ahí el umbral de antigüedad, por la misma razón.
+
+**Aviso y no error.** Un valor heredado de copiar una fila DA es un descuido, no una configuración inválida, y rechazar la fila dejaría un tag fuera de servicio por algo que no afecta el comportamiento. El aviso alcanza para que se corrija.
+
+**Pendiente.** Falta confirmar en la Fase 3 si `DEADBAND` tiene efecto en el camino de publicación de la v1. Si actúa sobre la publicación y no sobre la adquisición, aplica igual a las dos fuentes y esta decisión solo cubre su lectura como parámetro de adquisición.

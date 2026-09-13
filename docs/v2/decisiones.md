@@ -489,7 +489,9 @@ substatus no previstos y el caso `Error`.
 
 **Aviso y no error.** Un valor heredado de copiar una fila DA es un descuido, no una configuración inválida, y rechazar la fila dejaría un tag fuera de servicio por algo que no afecta el comportamiento. El aviso alcanza para que se corrija.
 
-**Pendiente.** Falta confirmar en la Fase 3 si `DEADBAND` tiene efecto en el camino de publicación de la v1. Si actúa sobre la publicación y no sobre la adquisición, aplica igual a las dos fuentes y esta decisión solo cubre su lectura como parámetro de adquisición.
+**Pendiente cerrado (Fase 3, paso 5).** `DEADBAND` no tiene efecto en ningún camino de la v1: ni en publicación ni en adquisición. En todo el repo la propiedad `Deadband` aparece dos veces y las dos son declarativas — `CsvTagLoader` la parsea de la columna 8 y `TagDefinition` la declara con default `0`. Ningún componente la lee. Ya estaba dicho en `configuracion-tags.md`, que la clasifica como "Solo viaja" y avisa de no asumir que un tag con `DEADBAND=0.5` esté filtrando algo; lo que faltaba era verificarlo contra el código en vez de confiar en el doc.
+
+**Qué implica para SQL.** Que la alternativa "actúa sobre la publicación, así que aplica igual a las dos fuentes" no existe, y la decisión de arriba queda como está: el driver SQL no hereda ni replica nada, porque no hay nada que heredar. La columna es una intención legible en las dos fuentes por igual, y el aviso del validador sigue teniendo sentido: marca un valor copiado por descuido, no un filtro que se perdió.
 
 ---
 

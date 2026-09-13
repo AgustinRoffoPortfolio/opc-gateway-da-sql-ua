@@ -41,17 +41,28 @@ leería en negativo. No pasa. El mapeo no necesita contemplar ese caso.
 
 **La calidad mala no es un caso raro.** Casi uno de cada cinco tags está en
 `BadLastKnown` en cualquier momento dado. No es una excepción que haya que forzar
-para probar: es el estado normal de una porción grande de la tabla. El simulador
-debería reflejar esa proporción.
+para probar: es el estado normal de una porción grande de la tabla. Eso importa
+para el gateway, que va a publicar miles de tags en `Bad` de entrada y no puede
+tratar eso como una anomalía.
+
+No importa, en cambio, para el simulador: con diez tags no hay forma honesta de
+representar un 0,04 %. El andamiaje garantiza que los cinco códigos sean
+*alcanzables* a voluntad, que es lo que necesita el driver para probar su mapeo,
+y no que aparezcan en la proporción observada.
+
+**Ninguna fila tiene `Q` en `NULL`.** Los cinco códigos suman 41.042, que es el
+total de la tabla, así que el `GROUP BY` habría mostrado una fila aparte si
+existiera. La columna es nullable y el mapeo del driver contempla el caso, pero
+en producción no ocurre. El simulador lo provoca con tags dedicados, declarados a
+mano.
 
 **El 216 es maestra `Good`.** `GoodLocalOverride` significa que un operador forzó
 el valor a mano. El gateway lo va a publicar en UA como `Good`, que es lo correcto
 según el estándar, pero es una sutileza para tener escrita antes de que aparezca
 en una demo: un valor puesto a mano se ve igual de bueno que uno medido.
 
-## Qué falta
+## Qué falta, cerrado
 
-El simulador genera solo 192 y 20. Los otros tres códigos están en su catálogo
-(`commFailureQuality`, `localOverrideQuality`, `uncertainQuality`) pero el loop
-todavía no los usa. Cubrirlos es trabajo de la Fase 3, donde se testea el mapeo
-de calidad del driver.
+El simulador generaba solo 192 y 20. Desde el paso 4 de la Fase 3 produce los
+cinco: 20 y 24 por estado del grupo de scan, 216 y 64 como condición propia de un
+tag. Ver `docs/v2/simulador.md`.

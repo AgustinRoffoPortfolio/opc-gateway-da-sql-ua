@@ -96,17 +96,49 @@ booleano que llega como 0 o 1 en la columna `real` (P2).
 
 | Tecla | Qué hace |
 |---|---|
-| `1` `2` `3` | Corta o restablece el campo del grupo correspondiente |
+| `1` `2` `3` | Cicla el estado del grupo: sano → campo perdido → falla de comunicación → sano |
 | `Esc` | Termina |
+
+### Condición propia del tag
+
+Aparte del estado del grupo, un tag puede declarar en el catálogo una condición
+que le es propia, con el campo `condition`:
+
+| `condition` | Qué escribe |
+|---|---|
+| *(ausente)* | Normal: `Q = 192` y `V` del modelo |
+| `LocalOverride` | `Q = 216` y `V` clavado en `overrideValue` |
+| `Uncertain` | `Q = 64`, `V` sigue el modelo |
+| `NullValue` | `V = NULL` |
+| `NullQuality` | `Q = NULL` |
+
+**El estado del grupo tiene precedencia sobre la condición del tag.** Si el campo
+de un grupo se cortó, sus tags reportan esa falla y su condición propia no se
+aplica: si no hay comunicación, no hay nada que reportar sobre el tag. Es una
+simplificación del andamiaje, no un comportamiento observado en la tabla real.
+
+**Los dos casos `Null` no existen en producción.** El relevamiento de R7 no
+encontró ninguna fila con `Q` nula, y las cinco calidades observadas suman el
+total de la tabla. Son casos de borde que el esquema permite y que el mapeo del
+driver contempla, así que hay que poder provocarlos; van declarados a mano en dos
+tags dedicados (`PRUEBA_NULO_VALOR`, `PRUEBA_NULO_CALIDAD`) justamente para que
+se vea que son forzados y no un estado natural de la planta.
+
+**El simulador no reproduce las proporciones de la tabla real.** Con diez tags no
+hay forma honesta de representar un 0,04 %. El objetivo es que los cinco códigos
+sean *alcanzables* a voluntad, que es lo que necesita el driver para probar su
+mapeo. La proporción observada sirve para otra cosa: dimensionar qué fracción de
+la tabla está en `Bad` en cualquier momento dado.
 
 ---
 
 ## Pérdida de campo (P6)
 
-Al cortar un grupo, sus filas quedan así:
+Al cortar un grupo —en cualquiera de sus dos estados de falla— sus filas quedan
+así:
 
 - **`V` congelado** en el último valor bueno.
-- **`Q` en 20** (`BadLastKnown`).
+- **`Q` en 20** (`BadLastKnown`) o **en 24** (`BadCommFailure`), según el estado.
 - **`TS` sigue avanzando.**
 
 Lo último es lo importante y es a propósito. La aplicación de origen sigue viva y
@@ -133,7 +165,40 @@ Qué mirar:
   tipados, nunca concatenados en el texto del SQL, así que la coma decimal de
   es-AR no tiene por dónde colarse.
 - Al cortar un grupo, sus filas pasan a `Q = 20` con `V` clavado y `TS` en
-  movimiento.
+  movimiento. Apretando la tecla otra vez pasan a `Q = 24`, con el mismo `V` y el
+  `TS` igual de fresco: lo único que cambia entre las dos fallas es el substatus.
+
+### Corrida del 13/09/2026
+
+Los cinco códigos y los dos `NULL`, con los tres grupos sanos:
+
+| TAG | V | Q |
+|---|---|---|
+| `PLANTA_01_MEDICION_PRESION_ENTRADA` | 12,564428 | 192 |
+| `PLANTA_01_MEDICION_PRESION_SALIDA` | 9,0 | 216 |
+| `PLANTA_02_MEDICION_DENSIDAD` | 0,85467809 | 64 |
+| `PRUEBA_NULO_VALOR` | `NULL` | 192 |
+| `PRUEBA_NULO_CALIDAD` | 2,0 | `NULL` |
+
+Los decimales llegaron con punto, no con coma: los valores viajan como
+`SqlParameter` tipados y la cultura es-AR no tiene por dónde colarse.
+
+Después de cortarle el campo al grupo RAPIDO dos veces, sus cinco tags —incluidos
+los tres con condición propia— quedaron en `Q = 24`, y los otros dos grupos
+siguieron en 192 y 64 sin enterarse. Tres cosas quedaron verificadas de una:
+
+- **La precedencia.** El 216, el 64 y los dos `NULL` desaparecieron detrás del
+  estado del grupo.
+- **Qué se congela.** `PRESION_SALIDA` quedó en 9,0, el valor que había forzado
+  el operador, y no en el del seno. Lo que se conserva es lo último que se
+  escribió de verdad. `PRUEBA_NULO_VALOR` quedó en 1,0 y no en `NULL`, porque un
+  nulo nunca entra al registro de último valor bueno: `BadCommFailure` ya dice
+  que el dato no sirve, y una columna nula encima sería ruido.
+- **El aislamiento entre grupos**, que es el invariante 8 visto del lado del
+  dato, antes de que exista el driver que lo lee.
+
+Y el `TS` de las cinco filas caídas quedó más nuevo que el de los grupos sanos,
+que es V2-23 otra vez: la falla se detecta por calidad, nunca por antigüedad.
 
 ---
 
@@ -149,8 +214,8 @@ Están aceptadas a propósito, no son deuda a corregir.
 - **Una sola conexión abierta todo el tiempo**, sin reconexión. Si se cae la
   base, el simulador muere. La reconexión es requisito del gateway (R5), no de
   esta herramienta.
-- **Tres de los cinco códigos de calidad reales no se generan todavía.** Están en
-  el catálogo (`commFailureQuality`, `localOverrideQuality`, `uncertainQuality`)
-  pero el loop solo usa 192 y 20. Ver `docs/v2/calidad-observada.md`.
+- **El valor forzado de `LocalOverride` es fijo.** Un operador real puede cambiar
+  el valor que dejó puesto; acá sale del catálogo y no se mueve. Alcanza para lo
+  que el driver tiene que distinguir, que es el código de calidad.
 - **`TS` en hora local**, sin conversión. Es lo que hace la aplicación de origen
   (P4); la conversión a UTC es responsabilidad del gateway.

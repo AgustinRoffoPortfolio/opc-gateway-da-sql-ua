@@ -31,7 +31,11 @@ var jsonOptions = new JsonSerializerOptions
 {
     PropertyNameCaseInsensitive = true,
     ReadCommentHandling = JsonCommentHandling.Skip,
-    AllowTrailingCommas = true
+    AllowTrailingCommas = true,
+    // Sin esto, un enum se lee solo como numero: "condition": "Uncertain" falla.
+    // Va en las opciones y no como atributo del enum para que el catalogo se
+    // escriba con nombres legibles sin que el tipo tenga que saberlo.
+    Converters = { new JsonStringEnumConverter() }
 };
 
 var catalog = JsonSerializer.Deserialize<SimulatorCatalog>(File.ReadAllText(catalogPath), jsonOptions);
@@ -60,9 +64,9 @@ for (var i = 0; i < catalog.ScanGroups.Count; i++)
 
 // --- Estado en memoria -----------------------------------------------------
 
-// Cuando vence cada grupo y si su campo esta cortado (P6).
+// Cuando vence cada grupo y en que estado esta su vinculo con el campo (P6).
 var nextDue = catalog.ScanGroups.ToDictionary(g => g.Name, _ => DateTime.Now);
-var fieldLost = catalog.ScanGroups.ToDictionary(g => g.Name, _ => false);
+var fieldState = catalog.ScanGroups.ToDictionary(g => g.Name, _ => FieldState.Healthy);
 
 // Ultimo valor bueno de cada tag: es lo que queda congelado al perder el campo.
 var lastGoodValue = new Dictionary<string, float>();
@@ -96,7 +100,7 @@ var pV = command.Parameters.Add("@v", System.Data.SqlDbType.Real);
 var pQ = command.Parameters.Add("@q", System.Data.SqlDbType.SmallInt);
 
 Console.WriteLine();
-Console.WriteLine("Simulando. Teclas: 1/2/3 cortan o restablecen un grupo, Esc termina.");
+Console.WriteLine("Simulando. Teclas: 1/2/3 ciclan un grupo (sano -> campo perdido -> falla de comunicacion), Esc termina.");
 Console.WriteLine();
 
 // --- Loop ------------------------------------------------------------------
@@ -121,10 +125,22 @@ while (running)
             if (index < catalog.ScanGroups.Count)
             {
                 var name = catalog.ScanGroups[index].Name;
-                fieldLost[name] = !fieldLost[name];
-                var estado = fieldLost[name]
-                    ? $"CAMPO PERDIDO (Q={catalog.LastKnownValueQuality})"
-                    : $"campo restablecido (Q={catalog.GoodQuality})";
+
+                // La misma tecla cicla los tres estados del vinculo con el campo.
+                fieldState[name] = fieldState[name] switch
+                {
+                    FieldState.Healthy => FieldState.LastKnown,
+                    FieldState.LastKnown => FieldState.CommFailure,
+                    _ => FieldState.Healthy
+                };
+
+                var estado = fieldState[name] switch
+                {
+                    FieldState.LastKnown => $"CAMPO PERDIDO (Q={catalog.LastKnownValueQuality})",
+                    FieldState.CommFailure => $"FALLA DE COMUNICACION (Q={catalog.CommFailureQuality})",
+                    _ => $"campo restablecido (Q={catalog.GoodQuality})"
+                };
+
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Grupo {name}: {estado}");
             }
         }
@@ -140,40 +156,84 @@ while (running)
         }
 
         nextDue[group.Name] = now.AddMilliseconds(group.PeriodMs);
-        var lost = fieldLost[group.Name];
+        var state = fieldState[group.Name];
 
         foreach (var tag in catalog.Tags.Where(t => t.ScanGroup == group.Name))
         {
-            float value;
-            short quality;
+            // Anulables porque V y Q son columnas nullable y el simulador tiene
+            // que poder escribir NULL en las dos (caso de borde del esquema).
+            float? value;
+            short? quality;
 
-            if (lost)
+            if (state == FieldState.Healthy)
             {
-                // El campo se cayo: el valor queda pegado en el ultimo bueno y la
-                // calidad lo declara. El TS sigue avanzando porque la aplicacion de
-                // origen sigue viva: la falla se detecta por Q, no por antiguedad (P6).
-                value = lastGoodValue.TryGetValue(tag.Name, out var held)
-                    ? held
-                    : SignalModel.Evaluate(tag, now);
-                quality = catalog.LastKnownValueQuality;
+                value = SignalModel.Evaluate(tag, now);
+                quality = catalog.GoodQuality;
+
+                // La condicion propia del tag solo se aplica con el campo sano:
+                // el estado del grupo tiene precedencia sobre ella.
+                switch (tag.Condition)
+                {
+                    case TagCondition.LocalOverride:
+                        // Un operador forzo el valor a mano: por eso deja de
+                        // seguir el modelo. En UA esto se publica como Good.
+                        value = (float)tag.OverrideValue;
+                        quality = catalog.LocalOverrideQuality;
+                        break;
+
+                    case TagCondition.Uncertain:
+                        quality = catalog.UncertainQuality;
+                        break;
+
+                    case TagCondition.NullValue:
+                        value = null;
+                        break;
+
+                    case TagCondition.NullQuality:
+                        quality = null;
+                        break;
+                }
+
+                // Se recuerda lo ultimo que se escribio de verdad, que es lo que
+                // queda congelado si despues se cae el campo. Un nulo no se recuerda.
+                if (value.HasValue)
+                {
+                    lastGoodValue[tag.Name] = value.Value;
+                }
             }
             else
             {
-                value = SignalModel.Evaluate(tag, now);
-                lastGoodValue[tag.Name] = value;
-                quality = catalog.GoodQuality;
+                // El vinculo con el campo se corto: el valor queda pegado en el
+                // ultimo bueno y la calidad lo declara. El TS sigue avanzando porque
+                // la aplicacion de origen sigue viva: la falla se detecta por Q, no
+                // por antiguedad (P6, V2-23).
+                value = lastGoodValue.TryGetValue(tag.Name, out var held)
+                    ? held
+                    : SignalModel.Evaluate(tag, now);
+                quality = state == FieldState.CommFailure
+                    ? catalog.CommFailureQuality
+                    : catalog.LastKnownValueQuality;
             }
 
             pTag.Value = tag.Name;
             pTs.Value = now;          // hora local, igual que la aplicacion de origen (P4)
-            pV.Value = value;
-            pQ.Value = quality;
+            // En ADO.NET un null de C# no significa NULL de SQL: hay que pasar
+            // DBNull.Value explicitamente. Npgsql se comporta igual.
+            pV.Value = (object?)value ?? DBNull.Value;
+            pQ.Value = (object?)quality ?? DBNull.Value;
 
             command.ExecuteNonQuery();
             writes++;
         }
 
-        Console.WriteLine($"[{now:HH:mm:ss}] {group.Name,-8} actualizado{(lost ? "  (campo perdido)" : "")}");
+        var nota = state switch
+        {
+            FieldState.LastKnown => "  (campo perdido)",
+            FieldState.CommFailure => "  (falla de comunicacion)",
+            _ => ""
+        };
+
+        Console.WriteLine($"[{now:HH:mm:ss}] {group.Name,-8} actualizado{nota}");
     }
 
     Thread.Sleep(catalog.TickMs);
@@ -235,4 +295,31 @@ sealed class SimulatorTag
     public double Amplitude { get; set; }
     public double PeriodSeconds { get; set; } = 60;
     public double RatePerSecond { get; set; }
+
+    // Ausente en el JSON = None: un tag sin condicion se comporta normal.
+    public TagCondition Condition { get; set; } = TagCondition.None;
+
+    // Valor que dejo el operador al forzar el tag. Solo lo usa LocalOverride.
+    public double OverrideValue { get; set; }
+}
+
+// Condicion propia del tag, independiente del estado del grupo de scan.
+// LocalOverride y Uncertain existen en la tabla real (ver calidad-observada.md);
+// los dos casos NULL no, y por eso van declarados a mano en el catalogo.
+enum TagCondition
+{
+    None,
+    LocalOverride,
+    Uncertain,
+    NullValue,
+    NullQuality
+}
+
+// Estado del vinculo con el campo, por grupo de scan. Tiene precedencia sobre
+// la condicion propia de cada tag: si no hay campo, no hay nada que reportar.
+enum FieldState
+{
+    Healthy,
+    LastKnown,
+    CommFailure
 }

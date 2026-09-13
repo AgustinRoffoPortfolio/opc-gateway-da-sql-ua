@@ -2,10 +2,10 @@
 // y un modelo de senal determinista: el valor es funcion del tiempo, nunca
 // un numero al azar (estandares seccion 5).
 {
-  // Codigos de calidad OPC DA. Configurables porque falta confirmar con
-  // que valores trabaja la tabla real (hueco de R7).
   // Codigos de calidad OPC DA confirmados contra la tabla real (R7).
-  // Proporciones observadas: 192 el 80%, 20 el 18%, el resto marginal.
+  // Ver docs/v2/calidad-observada.md. El simulador garantiza que los cinco
+  // sean alcanzables, no que aparezcan en la proporcion de la tabla real:
+  // con diez tags no hay forma honesta de representar un 0,04%.
   "goodQuality": 192,
   "lastKnownValueQuality": 20,
   "commFailureQuality": 24,
@@ -25,14 +25,29 @@
 
   // model: "Sine" oscila, "Ramp" crece sin parar, "Steady" se queda quieto.
   // baseValue es el centro; amplitude y ratePerSecond, segun el modelo.
+  //
+  // condition: condicion propia del tag, independiente del estado del grupo.
+  //   ausente         -> normal, Q=192
+  //   "LocalOverride" -> Q=216 y V clavado en overrideValue (un operador lo forzo)
+  //   "Uncertain"     -> Q=64, V sigue el modelo (el sensor lee, la calidad es dudosa)
+  //   "NullValue"     -> V = NULL
+  //   "NullQuality"   -> Q = NULL
+  // El estado del grupo (teclas 1/2/3) tiene precedencia sobre la condicion.
+  //
+  // Los dos casos NULL no existen en la tabla real: el relevamiento de R7 no
+  // encontro ninguna fila con Q nula. Son casos de borde que el esquema
+  // permite y el mapeo contempla, por eso van declarados a mano en tags
+  // dedicados y no ocurren solos.
   "tags": [
     { "name": "PLANTA_01_MEDICION_PRESION_ENTRADA",   "scanGroup": "RAPIDO", "model": "Sine",   "baseValue": 12.5,  "amplitude": 0.8,  "periodSeconds": 120 },
-    { "name": "PLANTA_01_MEDICION_PRESION_SALIDA",    "scanGroup": "RAPIDO", "model": "Sine",   "baseValue": 9.2,   "amplitude": 0.5,  "periodSeconds": 90 },
+    { "name": "PLANTA_01_MEDICION_PRESION_SALIDA",    "scanGroup": "RAPIDO", "model": "Sine",   "baseValue": 9.2,   "amplitude": 0.5,  "periodSeconds": 90, "condition": "LocalOverride", "overrideValue": 9.0 },
     { "name": "PLANTA_01_MEDICION_TEMPERATURA_SALIDA","scanGroup": "MEDIO",  "model": "Sine",   "baseValue": 68.0,  "amplitude": 3.0,  "periodSeconds": 600 },
     { "name": "PLANTA_01_MEDICION_CAUDAL_TOTALIZADO", "scanGroup": "MEDIO",  "model": "Ramp",   "baseValue": 1000.0, "ratePerSecond": 0.25 },
     { "name": "PLANTA_02_MEDICION_NIVEL_TANQUE",      "scanGroup": "MEDIO",  "model": "Sine",   "baseValue": 45.0,  "amplitude": 12.0, "periodSeconds": 900 },
     { "name": "PLANTA_02_ESTADO_BOMBA_01",            "scanGroup": "RAPIDO", "model": "Steady", "baseValue": 1.0 },
     { "name": "PLANTA_02_MEDICION_HORAS_MARCHA",      "scanGroup": "LENTO",  "model": "Ramp",   "baseValue": 8400.0, "ratePerSecond": 0.000278 },
-    { "name": "PLANTA_02_MEDICION_DENSIDAD",          "scanGroup": "LENTO",  "model": "Sine",   "baseValue": 0.86,  "amplitude": 0.01, "periodSeconds": 1800 }
+    { "name": "PLANTA_02_MEDICION_DENSIDAD",          "scanGroup": "LENTO",  "model": "Sine",   "baseValue": 0.86,  "amplitude": 0.01, "periodSeconds": 1800, "condition": "Uncertain" },
+    { "name": "PRUEBA_NULO_VALOR",                    "scanGroup": "RAPIDO", "model": "Steady", "baseValue": 1.0, "condition": "NullValue" },
+    { "name": "PRUEBA_NULO_CALIDAD",                  "scanGroup": "RAPIDO", "model": "Steady", "baseValue": 2.0, "condition": "NullQuality" }
   ]
 }

@@ -157,7 +157,19 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 
 **Cifrado (aplica V2-4).** Los valores versionados son los seguros: `Encrypt: true`, `TrustServerCertificate: false`. El contenedor local usa certificado autofirmado y necesita `TrustServerCertificate: true`, que va en el override local junto con las credenciales. No agrega fricción, porque sin override el gateway no conecta de todos modos.
 
-**Validación al arranque.** `Host`, `User` o `Password` vacíos: falla con mensaje explícito. Intervalos fuera de los rangos de R4 y R5: advertencia en el log, no error, porque los requisitos dan rangos esperados y no límites.
+**Validación al arranque, en dos niveles.** `Host`, `User` o `Password` vacíos: falla con mensaje explícito, que además nombra el override local de V2-7, porque en una máquina nueva ese es el primer error que aparece y sin la pista parece un olvido de configuración. Los intervalos se validan contra dos rangos distintos:
+
+- **Rango duro de sanidad** —mayor que cero y hasta una hora—: es error y el gateway no arranca. Un cero no es "fuera de lo esperado", es un loop que no puede funcionar, y un valor desmedido es un cero de más en un parámetro que nadie revisa dos veces.
+- **Rango esperado de R4 y R5**: es advertencia y el gateway arranca igual, porque los requisitos dan rangos de operación esperados y no límites del sistema.
+
+**Por qué dos niveles y no el rango de los requisitos como límite duro.** Con R4 duro, un polling de 5 s no arrancaría, y ese es exactamente el valor que hace falta para demostrar el gateway en el video y para medir tiempos de detección y recuperación en la Fase 5 sin esperar medio minuto por prueba. También ataría el gateway a rechazar una configuración que mi padre podría pedir mañana por un número que elegimos nosotros y no él. El costo de la advertencia —que un log que nadie lee es lo mismo que nada— se acota con el rango duro, que sí atrapa lo absurdo.
+
+**Dos validaciones más, no previstas acá y agregadas al escribir el código**, las dos por ser errores silenciosos:
+
+- Advertencia si `CommandTimeoutSeconds` es mayor o igual que `PollingIntervalSeconds`: una consulta lenta encimaría ciclos, que es el invariante 8.
+- Advertencia si el cifrado está relajado (`TrustServerCertificate: true`) o apagado (`Encrypt: false`). Es la configuración esperada contra la base local con certificado autofirmado, y sería un agujero callado contra un servidor real.
+
+**Forma de la validación.** Es una función pura que devuelve dos listas de texto ya redactado, sin logger y sin excepciones: el host tira los errores y loguea las advertencias. Se testea sin base y sin logger, igual que `TagQuality.FromDaCode` en V2-19.
 
 **Pendiente.** Cómo se arma `[Database].[Schema].[Table]` desde tres claves de configuración sin que un valor mal escrito termine siendo SQL inyectado (bloque de arquitectura del driver).
 

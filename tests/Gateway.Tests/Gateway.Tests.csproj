@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\Gateway.Core\Gateway.Core.csproj" />
     <ProjectReference Include="..\..\src\Gateway.Da\Gateway.Da.csproj" />
     <ProjectReference Include="..\..\src\Gateway.Ua\Gateway.Ua.csproj" />
+    <ProjectReference Include="..\..\src\Gateway.Sql\Gateway.Sql.csproj" />
   </ItemGroup>
 
 </Project>

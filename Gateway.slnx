@@ -3,6 +3,7 @@
     <Project Path="src/Gateway.Core/Gateway.Core.csproj" />
     <Project Path="src/Gateway.Da/Gateway.Da.csproj" />
     <Project Path="src/Gateway.Host/Gateway.Host.csproj" />
+    <Project Path="src/Gateway.Sql/Gateway.Sql.csproj" />
     <Project Path="src/Gateway.Ua/Gateway.Ua.csproj" />
     <Project Path="src/Gateway.Web/Gateway.Web.csproj" />
   </Folder>

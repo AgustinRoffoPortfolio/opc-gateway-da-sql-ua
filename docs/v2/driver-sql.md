@@ -71,6 +71,38 @@ sin ellas se omite. La misma pieza que protege el secreto hace el salteo.
 
 - **Reconexión (R5).** El driver no tiene política de reintentos adentro por
   diseño (V2-10); vive en el host y se prueba en el paso 5.
-- **Mapeo a `TagSample`.** `ReadRows` devuelve filas crudas. Tipos, `NULL`,
-  calidad y hora local a UTC son el paso 3.
+- **El mapeo contra la base real.** Se verificó con filas construidas a mano
+  (paso 3, más abajo); que lo que llega de `CURR_DATA` produzca las muestras
+  esperadas se prueba de punta a punta en el paso 5.
 - **Timeout de consulta.** Configurado, sin provocar todavía.
+
+## Fase 3, paso 3 — Mapeo de fila a `TagSample`
+
+**13/09/2026.**
+
+### Todo el paso se verificó sin base y sin esperas
+
+Es la consecuencia práctica del corte que introdujo `SqlTagRow`: leer necesita
+la base y no tiene lógica; mapear tiene toda la lógica y no necesita la base.
+Los 10 tests de `SqlTagMapperTests` construyen las filas a mano, así que corren
+en cualquier máquina sin Docker y sin `Thread.Sleep`.
+
+Es la diferencia con los tests de degradación por antigüedad de la v1, que
+esperan 120 ms cada uno porque `Degrade` lee el reloj por dentro.
+
+### Qué cubren los tests
+
+Del mapeo: conversión de hora local a UTC contra la zona configurada, zona
+vacía resuelta a la de la máquina, `V` en `NULL`, `Q` en `NULL`, pérdida de
+campo (`Q = 20`, el caso de P6), substatus no previsto y nombres que difieren
+en mayúsculas.
+
+Los dos casos de horario de verano se verifican contra `Pacific Standard Time`
+y no contra la zona local: Argentina no lo aplica desde 2009, así que la hora
+inexistente y la ambigua no se pueden reproducir acá.
+
+De la cache, con los tipos nuevos: `Float` escalado en `double` y casteado al
+final, booleano que llega como número, y muestra con calidad utilizable pero
+sin valor.
+
+**Resultado:** 128 correctos, 0 con error, 2,7 s.

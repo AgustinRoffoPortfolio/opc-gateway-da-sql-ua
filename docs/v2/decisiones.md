@@ -354,6 +354,8 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 
 **Pendiente, que se suma al de V2-11.** Si `V` viene `NULL` de forma permanente, el tag queda indefinidamente mostrando un valor viejo en `Uncertain`, y como los tags SQL no degradan por antigüedad (V2-11), nada lo empeora nunca. Es el mismo hueco que el tag SQL que jamás recibe su primera muestra. Los dos casos se resuelven juntos, junto con la definición de qué cubre exactamente el tag ausente de P9.
 
+**Hallazgo al implementar.** La decisión no tenía camino en el código. Una muestra con calidad utilizable y valor nulo pasaba el chequeo de `IsUsable`, caía en `TryScale` —que devuelve `false` ante un nulo— y terminaba publicada como `ConversionError`, que es `Bad`: justo lo contrario de conservar el último valor bueno. Se agregó una rama en `TagCache.Apply`, entre el chequeo de calidad y el de escalado.
+
 ---
 
 ### V2-17 — El cruce de nombres respeta la semántica de cada fuente
@@ -377,6 +379,8 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 **Por qué convertir.** `TS` es hora local puesta por la aplicación de origen (P4) y el `SourceTimestamp` de OPC UA es UTC por definición. Publicarlo sin convertir correría los tags SQL respecto de los DA —en Argentina, tres horas— y un cliente que compare timestamps de las dos fuentes vería el dato SQL en el futuro o en el pasado sin explicación. Mi padre condicionó la conversión a que no implique carga de CPU, y no la implica: es una resta de offset sobre unas miles de filas cada 20 a 60 s, con la zona resuelta una vez al arrancar.
 
 **Por qué parámetro y no la zona de la máquina a secas.** Con base simulada local las dos coinciden, pero el servidor real de TEST (P10) puede estar en otra máquina y el gateway correr en otra. Dejarlo como parámetro hace que ese caso se resuelva por configuración, que es el único punto de adecuación previsto. El default evita que haya que configurarlo para el caso normal.
+
+**La clave es `Sql:TimeZone` y vacío es válido.** Vacío significa la zona de la máquina donde corre el gateway, que es el caso normal. No se versiona un ID concreto porque se resuelve contra la tabla de zonas de la máquina que corre, así que fijar uno en el JSON lo rompería en cualquier otra. Se valida al arrancar: un ID mal escrito explotaría recién en el primer ciclo de polling, lejos del arranque y con un mensaje que no nombra el JSON.
 
 **Detalle que importa.** Un `datetime` de SQL Server llega con `DateTimeKind.Unspecified`. Usar `ToUniversalTime()` sobre eso asume la zona de la máquina en silencio, que es justamente lo que el parámetro existe para no hacer. La conversión tiene que ser explícita contra la zona configurada.
 
@@ -472,6 +476,8 @@ substatus no previstos y el caso `Error`.
 - **Tag que nunca recibió su primera muestra.** Deja de ser un caso propio. Si el tag no está en la tabla, cae en el primero. Si está, la primera consulta ya lo trae y sale de `WaitingForInitialData` en el primer ciclo. El estado eterno que preocupaba en V2-11 no puede ocurrir.
 
 **Por qué `Bad` acá y `Uncertain` allá, sin contradecir el principio 3.** Un tag que no existe en la tabla no tiene ningún valor bueno anterior que `Bad` pueda borrar, así que el argumento del principio no aplica; y la causa —configuración— manda a revisar el CSV en lugar de la red, que es información útil. Un tag que existe y momentáneamente no trae valor sí tiene historia que preservar, y ahí `Uncertain` es lo correcto.
+
+**Pendiente.** El primer caso lo implementa el host, no el driver: hay que cruzar las filas recibidas contra `SourceTags(TagSource.Sql)`. El mapeo no conoce las definiciones, por diseño, y la cache solo toca lo que llega, así que hoy un tag ausente queda en `WaitingForInitialData` —`Bad`, pero con otra causa y sin aviso—. Va con el loop de polling.
 
 ---
 

@@ -171,7 +171,7 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 
 **Forma de la validación.** Es una función pura que devuelve dos listas de texto ya redactado, sin logger y sin excepciones: el host tira los errores y loguea las advertencias. Se testea sin base y sin logger, igual que `TagQuality.FromDaCode` en V2-19.
 
-**Pendiente.** Cómo se arma `[Database].[Schema].[Table]` desde tres claves de configuración sin que un valor mal escrito termine siendo SQL inyectado (bloque de arquitectura del driver).
+**Pendiente, cerrado por V2-9.** El armado de `[Database].[Schema].[Table]` se resolvió con `SqlIdentifier`: se valida la forma del identificador y se escapa al concatenar. El validador rechaza al arrancar cualquiera de las tres claves que no sea un identificador válido.
 
 ---
 
@@ -207,7 +207,7 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 
 **Qué expone.** `SqlTagSource`, clase pasiva con la misma forma que `OpcDaTagSource`: `Connect()`, `IsConnected`, `ReadAll()` devolviendo `IReadOnlyDictionary<string, TagSample>`, e `IDisposable`. Sin hilos, sin temporizadores, sin política de reintentos adentro. El porqué está en V2-10.
 
-**Pendiente.** El nombre del tipo de opciones (`SqlOptions`, espejo de `DaOptions`) y en qué proyecto vive: `DaOptions` está dentro de `Gateway.Da`, así que por simetría va dentro de `Gateway.Sql`. Se confirma al crear el proyecto en la Fase 3.
+**Pendiente, cerrado.** Es `SqlOptions`, dentro de `Gateway.Sql`, como se preveía por simetría con `DaOptions`. Con `SqlColumnOptions` anidada para los nombres de columna de R6, que en el JSON son un objeto y el binder necesita un tipo que mapear.
 
 ---
 
@@ -283,7 +283,7 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 
 **Segundo cambio en `Gateway.Core`.** Junto con V2-11, confirma qué aguantó y qué no del diseño de la v1 al sumar una fuente. `TagSample` y `TagState` no cambian: el tipo de dato compartido efectivamente alcanzó. Lo que no aguantó fue lo que asumía una sola fuente sin decirlo — un umbral de antigüedad único y un espacio de nombres de origen único. Las dos son suposiciones correctas mientras hay un solo driver, y las dos se rompen al agregar el segundo. Va al reporte de cierre.
 
-**Pendiente.** Los nombres definitivos de los miembros renombrados y la forma exacta de la clave (`record struct` o tupla) se cierran al escribir el código, en la Fase 3.
+**Pendiente, cerrado.** La clave es `record struct TagKey(TagSource Source, string SourceTag)`. `record struct` y no tupla porque los miembros se leen por nombre en todos los usos, y struct porque se construye una vez por muestra por ciclo —miles por ciclo con la tabla entera— y así no genera basura. Los miembros quedaron como `SourceTags(TagSource)` y `GetSourceKey(string)`.
 
 ---
 
@@ -305,7 +305,7 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 
 **Tercer cambio en `Gateway.Core`, y el de más superficie.** A diferencia de V2-11 y V2-12, este toca lo que el gateway le muestra al mundo: nodos UA de diagnóstico y la página web. Va al reporte de cierre junto con los otros dos, y es el que mejor ilustra el patrón común: lo que no aguantó el agregado de una segunda fuente no fueron los tipos de dato compartidos, sino las estructuras que decían "el" vínculo, "el" umbral, "el" nombre de origen, en singular, porque cuando se escribieron había uno solo.
 
-**Pendiente.** Cómo se identifica una fuente en el snapshot y en el nombre del nodo UA (un enum de origen, el mismo valor que usa la columna `SOURCE` del CSV, u otra cosa), y si el node manager arma la rama de diagnóstico por fuente de forma dinámica o con las dos fuentes conocidas. Se cierra en la Fase 4, al integrar.
+**Pendiente.** Una fuente se identifica con `TagSource`, el mismo enum que usa la columna `SOURCE` del CSV, serializado como texto. Queda abierto si el node manager arma la rama de diagnóstico por fuente de forma dinámica o con las dos fuentes conocidas. Se cierra en la Fase 4, al integrar.
 
 ---
 
@@ -368,7 +368,7 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 
 **Por qué no dejarlo sensible y documentarlo.** Era la opción de costo cero. Se descarta porque convierte un problema de mayúsculas en un tag que no funciona sin explicar por qué: el operador ve un tag en `Bad` y no tiene forma de deducir que la causa es la capitalización de una letra en un CSV.
 
-**Detalle de implementación.** Un `Dictionary` tiene un único comparador para toda la clave, así que el comparador de la clave compuesta es el que decide: compara el origen de forma exacta y el nombre según la regla de ese origen. La forma exacta se cierra en la Fase 3, junto con la forma de la clave de V2-12.
+**Detalle de implementación.** Un `Dictionary` tiene un único comparador para toda la clave, así que el comparador de la clave compuesta es el que decide: compara el origen de forma exacta y el nombre según la regla de ese origen. Es `TagKeyComparer`, un `IEqualityComparer<TagKey>` singleton, con el `GetHashCode` derivado del mismo comparador de strings que usa `Equals` para que dos claves SQL que difieren en mayúsculas caigan en el mismo bucket.
 
 ---
 

@@ -1,8 +1,9 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\Gateway.Core\Gateway.Core.csproj" />
     <ProjectReference Include="..\Gateway.Da\Gateway.Da.csproj" />
+    <ProjectReference Include="..\Gateway.Sql\Gateway.Sql.csproj" />
     <ProjectReference Include="..\Gateway.Ua\Gateway.Ua.csproj" />
     <ProjectReference Include="..\Gateway.Web\Gateway.Web.csproj" />
   </ItemGroup>
@@ -11,6 +12,7 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.10" />
     <PackageReference Include="Serilog" Version="4.4.0" />
     <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
@@ -36,6 +38,7 @@
     <PlatformTarget>x86</PlatformTarget>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <UserSecretsId>7e3944f4-0bf0-4e4e-9cae-bb5401957779</UserSecretsId>
   </PropertyGroup>
 
 </Project>

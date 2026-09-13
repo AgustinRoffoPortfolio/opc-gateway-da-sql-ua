@@ -8,6 +8,7 @@ using Opc.Ua.Configuration;
 using Serilog;
 using Gateway.Da;
 using Gateway.Host;
+using Gateway.Sql;
 using Gateway.Web;
 
 // El driver OPC DA exige un proceso de 32 bits: esto tiene que fallar
@@ -46,6 +47,11 @@ if (args.Contains("--da-only"))
 var configuration = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
     .AddJsonFile("appsettings.json", optional: false)
+    // Override local de las credenciales SQL (V2-7). Va despues del JSON para
+    // pisar sus claves vacias, y antes de las variables de entorno para que
+    // estas sigan ganando: son el mecanismo previsto para el servidor de TEST,
+    // donde no hay user-secrets (P10).
+    .AddUserSecrets<Program>(optional: true)
     .AddEnvironmentVariables()
     .Build();
 
@@ -59,6 +65,10 @@ var daOptions = configuration.GetSection("Da").Get<DaOptions>()
 // vez de tirar el arranque abajo, porque un gateway sin pagina de diagnostico
 // sigue siendo un gateway.
 var webOptions = configuration.GetSection("Web").Get<WebOptions>() ?? new WebOptions();
+
+// Los valores reales de User y Password no estan en el JSON versionado: llegan
+// por user-secrets o variables de entorno y pisan las claves vacias (V2-7).
+var sqlOptions = configuration.GetSection("Sql").Get<SqlOptions>() ?? new SqlOptions();
 
 // Logger de toda la aplicacion.
 Log.Logger = new LoggerConfiguration()
@@ -261,8 +271,14 @@ var staleAfter = TimeSpan.FromMilliseconds(
 // todos los tags son DA y reciben el mismo valor, calculado desde DaOptions;
 // cuando entre la fuente SQL, sus definitions van a llevar null para que la
 // calidad la mande la columna Q y no el reloj del gateway.
+// Los tags SQL no se degradan por antiguedad (V2-11): su calidad sale de la
+// columna Q, que ya reporta la perdida del campo (P6), y el polling de decenas
+// de segundos degradaria todos los tags entre un ciclo y el siguiente.
+//
+// NO EJERCITADO todavia: CsvTagLoader pasa Source: TagSource.OpcDa fijo hasta
+// que entre V2-5 en la Fase 4, asi que hoy la rama Sql no se cumple nunca.
 var tagDefinitions = tagLoadResult.Tags
-    .Select(d => d with { StaleAfter = staleAfter })
+    .Select(d => d with { StaleAfter = d.Source == TagSource.Sql ? null : staleAfter })
     .ToList();
 
 var cache = new TagCache(tagDefinitions);
@@ -286,6 +302,18 @@ var daThread = new Thread(() => acquisition.Run(daShutdown.Token))
 };
 daThread.SetApartmentState(ApartmentState.MTA);
 daThread.Start();
+
+// Hilo propio para SQL, separado del de DA y del timer de publicacion: es el
+// invariante 8, una consulta lenta o una base caida no pueden frenar a la otra
+// fuente. Sin SetApartmentState: eso es una exigencia de COM, no de ADO.NET.
+var sqlShutdown = new CancellationTokenSource();
+var sqlAcquisition = new SqlAcquisitionService(cache, sqlOptions);
+var sqlThread = new Thread(() => sqlAcquisition.Run(sqlShutdown.Token))
+{
+    IsBackground = true,
+    Name = "SQL polling"
+};
+sqlThread.Start();
 
 Log.Information("Address space listo: {Tags} tags", server.NodeManager?.TagCount ?? 0);
 
@@ -311,7 +339,7 @@ using var timer = new Timer(_ =>
         {
             var snapshot = GatewaySnapshot.Build(
                 cache,
-                [acquisition.GetStatus()],
+                [acquisition.GetStatus(), sqlAcquisition.GetStatus()],
                 nodeManager.GetServerStatus(),
                 startedUtc,
                 // La foto de auditoria se toma aca, en el mismo instante que el
@@ -396,8 +424,20 @@ Log.Information("Deteniendo servidor...");
 if (diagnosticsServer is not null)
     await diagnosticsServer.DisposeAsync();
 
+// Los dos tokens se cancelan antes de esperar a ningun hilo: asi el apagado
+// tarda lo que tarda el mas lento y no la suma de los dos.
 await daShutdown.CancelAsync();
+await sqlShutdown.CancelAsync();
+
+// El hilo SQL se despierta enseguida del WaitOne, porque la cancelacion senaliza
+// el WaitHandle y no hay que esperar el intervalo de polling entero. La
+// excepcion es una consulta en curso: ahi el hilo no vuelve hasta que termine o
+// venza el CommandTimeout, el Join se agota y el proceso lo mata por ser
+// background. Se acepta: estirar el Join volveria lento cada apagado normal
+// para cubrir un caso raro, y no hay nada que perder porque el driver es de
+// solo lectura y no deja escrituras a medio hacer.
 daThread.Join(TimeSpan.FromSeconds(5));
+sqlThread.Join(TimeSpan.FromSeconds(5));
 await application.StopAsync();
 Log.Information("Servidor detenido.");
 await Log.CloseAndFlushAsync();

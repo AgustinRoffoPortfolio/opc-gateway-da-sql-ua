@@ -95,6 +95,8 @@ public static class SqlOptionsValidator
             warnings.Add($"Sql:CommandTimeoutSeconds ({options.CommandTimeoutSeconds} s) es mayor o igual que Sql:PollingIntervalSeconds ({options.PollingIntervalSeconds} s). Una consulta lenta encimaria ciclos.");
         }
 
+        ValidateTimeZone(options.TimeZone, errors);
+
         // Cifrado relajado: no es error, pero tiene que quedar dicho. Es la
         // configuracion de la base local con certificado autofirmado (V2-6), y
         // contra un servidor real seria un agujero silencioso.
@@ -109,6 +111,31 @@ public static class SqlOptionsValidator
         }
 
         return new SqlOptionsValidation(errors, warnings);
+    }
+
+    /// La zona de V2-18. Vacio es valido: significa la zona de la maquina.
+    ///
+    /// Se resuelve aca aunque el validador sea puro porque no abre nada ni
+    /// loguea: consulta la tabla de zonas del sistema, que es lectura local. Y
+    /// hay que resolverla al arrancar: un ID mal escrito explotaria recien en el
+    /// primer ciclo de polling, lejos del arranque y con un mensaje que no
+    /// nombra el JSON.
+    private static void ValidateTimeZone(string value, List<string> errors)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+
+        try
+        {
+            TimeZoneInfo.FindSystemTimeZoneById(value);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            errors.Add($"Sql:TimeZone no existe en esta maquina: '{value}'. Dejalo vacio para usar la zona local, o usa un ID valido (por ejemplo 'Argentina Standard Time').");
+        }
+        catch (InvalidTimeZoneException)
+        {
+            errors.Add($"Sql:TimeZone existe pero sus datos estan corruptos: '{value}'.");
+        }
     }
 
     private static void ValidateIdentifier(string value, string key, List<string> errors)

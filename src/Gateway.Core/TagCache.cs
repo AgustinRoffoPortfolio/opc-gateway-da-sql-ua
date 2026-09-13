@@ -233,6 +233,27 @@ public sealed class TagCache
         if (!sample.Quality.IsUsable)
             return new TagState(previous.ScaledValue, sample.Quality, previous.SourceTimestamp, now);
 
+        // Muestra con calidad utilizable pero sin valor: es la columna V en
+        // NULL de CURR_DATA (V2-16). Hay fila, pero no hay medicion que fechar.
+        // Se conserva el valor anterior con su SourceTimestamp -que no avanza
+        // aunque TS haya cambiado, porque avanzarlo afirmaria una medicion que
+        // no existe- y solo se toca la calidad. Sin esta rama el nulo caeria en
+        // TryScale y saldria como ConversionError, que es Bad y le borra al
+        // cliente el ultimo dato bueno: exactamente lo contrario del principio 3.
+        if (sample.Value is null)
+        {
+            // Un valor viejo publicado en Good afirmaria una frescura que no
+            // tiene. Desde SQL no pasa (el driver ya manda Uncertain), pero la
+            // rama es compartida con DA y esa es la unica mentira que podria
+            // introducir. Una calidad Uncertain se respeta tal cual: ya dice
+            // lo que hay que decir.
+            var quality = sample.Quality.Master == QualityMaster.Good
+                ? TagQuality.LastUsableValue
+                : sample.Quality;
+
+            return new TagState(previous.ScaledValue, quality, previous.SourceTimestamp, now);
+        }
+
         if (!TryScale(definition, sample.Value, out var scaled))
             return new TagState(previous.ScaledValue, TagQuality.ConversionError, previous.SourceTimestamp, now);
 
@@ -259,10 +280,19 @@ public sealed class TagCache
                 return true;
 
             case TagDataType.Boolean:
+                // Multiplier y Offset no se aplican nunca a un booleano: no
+                // significan nada, y un Offset distinto de 0 lo daria vuelta.
                 if (raw is bool b) { scaled = b; return true; }
+
+                // Desde SQL un booleano llega como 0 o 1 en la columna real
+                // (P2, V2-15). Distinto de 0 es true: es la convencion del
+                // mundo del proceso y tolera un 0,9999 de una conversion
+                // intermedia, en vez de descartarlo como valor imposible.
+                if (TryToDouble(raw, out var flag)) { scaled = flag != 0; return true; }
                 return false;
 
             case TagDataType.Double:
+            case TagDataType.Float:
             case TagDataType.Int32:
                 // InvariantCulture: el valor puede llegar como texto con punto
                 // decimal, y la maquina esta en es-AR (coma). Sin esto, "8009.57"
@@ -274,6 +304,16 @@ public sealed class TagCache
                 if (definition.DataType == TagDataType.Double)
                 {
                     scaled = value;
+                    return true;
+                }
+
+                // El escalado se calcula en double y el cast baja recien al
+                // final (V2-14): calcular en la precision alta evita acumular
+                // error en la propia cuenta, que es un problema distinto del de
+                // la precision del dato de origen.
+                if (definition.DataType == TagDataType.Float)
+                {
+                    scaled = (float)value;
                     return true;
                 }
 

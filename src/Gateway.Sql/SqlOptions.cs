@@ -40,6 +40,18 @@ public class SqlOptions
     /// una tabla de 10.000 filas.
     public int CommandTimeoutSeconds { get; set; } = 10;
 
+    /// Zona horaria de la columna TS, que viene en hora local de la aplicacion
+    /// de origen (P4) y hay que llevar a UTC porque el SourceTimestamp de OPC
+    /// UA es UTC por definicion (V2-18). Sin convertir, los tags SQL quedarian
+    /// tres horas corridos respecto de los DA.
+    ///
+    /// Vacio significa la zona de la maquina donde corre el gateway, que es el
+    /// caso normal. Es parametro y no la zona local a secas porque el servidor
+    /// de TEST (P10) puede estar en otra maquina. El ID no se versiona con un
+    /// valor concreto: se resuelve en la maquina que corre, asi que fijar uno
+    /// aca lo romperia en cualquier otra.
+    public string TimeZone { get; set; } = "";
+
     /// Cifrado de la conexion. Los valores versionados son los seguros; el
     /// contenedor local usa certificado autofirmado y necesita
     /// TrustServerCertificate en true, que va en el override local junto con

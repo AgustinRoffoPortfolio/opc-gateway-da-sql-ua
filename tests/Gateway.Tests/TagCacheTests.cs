@@ -174,6 +174,109 @@ public class TagCacheTests
         Assert.Equal(11, cache.Get("PLANTA_01.MEDICION.PRESION_ENTRADA").ScaledValue);
     }
 
+    // --- Tipos nuevos de la v2: Float y Boolean numerico -------------------
+
+    [Fact]
+    public void Float_AplicaMultiplicadorYOffsetYPublicaFloat()
+    {
+        // V2-14. El tipo publicado importa tanto como el numero: un cliente que
+        // lee Float sabe cuantos digitos tiene sentido mostrar.
+        var cache = CacheWith(Def(TagDataType.Float, multiplier: 2.0, offset: 10.0));
+
+        cache.Update(TagSource.OpcDa, Sample(5.0f, TagQuality.Good, T1));
+
+        var state = cache.Get("PLANTA_01.MEDICION.PRESION_ENTRADA");
+        Assert.IsType<float>(state.ScaledValue);
+        Assert.Equal(20.0f, (float)state.ScaledValue!);
+    }
+
+    [Fact]
+    public void Float_CalculaEnDoubleYCasteaAlFinal()
+    {
+        // El valor de la columna real llega como float; el escalado se hace en
+        // double y recien al publicar baja a float. Calcular en la precision
+        // alta evita acumular error en la cuenta.
+        var cache = CacheWith(Def(TagDataType.Float, multiplier: 1.0));
+
+        cache.Update(TagSource.OpcDa, Sample(8009.57f, TagQuality.Good, T1));
+
+        Assert.Equal(8009.57f, (float)cache.Get("PLANTA_01.MEDICION.PRESION_ENTRADA").ScaledValue!);
+    }
+
+    [Fact]
+    public void BooleanDesdeNumero_CeroEsFalseYElRestoTrue()
+    {
+        // V2-15. Desde SQL un booleano llega como 0 o 1 en la columna real (P2),
+        // no como un bool materializado. Antes esto no actualizaba el tag nunca.
+        var cache = CacheWith(Def(TagDataType.Boolean));
+
+        cache.Update(TagSource.OpcDa, Sample(1.0f, TagQuality.Good, T1));
+        Assert.Equal(true, cache.Get("PLANTA_01.MEDICION.PRESION_ENTRADA").ScaledValue);
+
+        cache.Update(TagSource.OpcDa, Sample(0.0f, TagQuality.Good, T2));
+        Assert.Equal(false, cache.Get("PLANTA_01.MEDICION.PRESION_ENTRADA").ScaledValue);
+    }
+
+    [Fact]
+    public void BooleanDesdeNumero_NoDescartaUnCasiUno()
+    {
+        // "Distinto de 0" y no "1 exactamente": tolera un valor que llegue como
+        // 0,9999 por una conversion intermedia, en vez de tratarlo como imposible.
+        var cache = CacheWith(Def(TagDataType.Boolean));
+
+        cache.Update(TagSource.OpcDa, Sample(0.9999f, TagQuality.Good, T1));
+
+        Assert.Equal(true, cache.Get("PLANTA_01.MEDICION.PRESION_ENTRADA").ScaledValue);
+    }
+
+    [Fact]
+    public void Boolean_NoAplicaMultiplicadorNiOffset()
+    {
+        // Con offset 10 aplicado, un 0 daria true. No se aplica: escalar un
+        // booleano no significa nada y lo daria vuelta.
+        var cache = CacheWith(Def(TagDataType.Boolean, multiplier: 2.0, offset: 10.0));
+
+        cache.Update(TagSource.OpcDa, Sample(0.0f, TagQuality.Good, T1));
+
+        Assert.Equal(false, cache.Get("PLANTA_01.MEDICION.PRESION_ENTRADA").ScaledValue);
+    }
+
+    // --- Muestra con calidad utilizable pero sin valor: V2-16 --------------
+
+    [Fact]
+    public void ValorNuloConCalidadBuena_ConservaElValorYDegradaACalidadUsable()
+    {
+        // Es la columna V en NULL. Sin la rama de V2-16 esto caia en TryScale y
+        // salia como ConversionError, que es Bad y borra el ultimo dato bueno.
+        var cache = CacheWith(Def(multiplier: 2.0));
+        cache.Update(TagSource.OpcDa, Sample(5.0, TagQuality.Good, T1));
+
+        cache.Update(TagSource.OpcDa, Sample(null, TagQuality.Good, T2));
+
+        var state = cache.Get("PLANTA_01.MEDICION.PRESION_ENTRADA");
+        Assert.Equal(10.0, state.ScaledValue);      // el valor viejo sobrevive
+        Assert.Equal(T1, state.SourceTimestamp);    // no avanza: no hubo medicion
+        Assert.Equal(TagQuality.LastUsableValue, state.Quality);
+    }
+
+    [Fact]
+    public void ValorNuloConCalidadUncertain_RespetaLaCalidadQueLlego()
+    {
+        // El driver SQL manda Uncertain ante un NULL: esa calidad ya dice lo que
+        // hay que decir y no se pisa con LastUsableValue.
+        var uncertain = new TagQuality(
+            QualityMaster.Uncertain, QualitySubstatus.UncertainSensorNotAccurate, QualityLimit.NotLimited);
+        var cache = CacheWith(Def(multiplier: 2.0));
+        cache.Update(TagSource.OpcDa, Sample(5.0, TagQuality.Good, T1));
+
+        cache.Update(TagSource.OpcDa, Sample(null, uncertain, T2));
+
+        var state = cache.Get("PLANTA_01.MEDICION.PRESION_ENTRADA");
+        Assert.Equal(10.0, state.ScaledValue);
+        Assert.Equal(T1, state.SourceTimestamp);
+        Assert.Equal(uncertain, state.Quality);
+    }
+
     [Fact]
     public void MuestraDeUnTagQueNoPedimos_SeIgnora()
     {

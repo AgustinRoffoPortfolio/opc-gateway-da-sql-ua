@@ -7,7 +7,13 @@ public enum TagDataType
     Double,
     Boolean,
     Int32,
-    String
+    String,
+
+    // Agregado en la v2 (V2-14). La columna V de CURR_DATA es real: un float de
+    // 4 bytes, unos 7 digitos significativos. Publicarlo como Double mostraria
+    // digitos que la medicion no tiene. Va al final para no renumerar los que
+    // ya existen.
+    Float
 }
 
 /// De donde sale el valor de un tag. Se declara en la columna SOURCE del CSV

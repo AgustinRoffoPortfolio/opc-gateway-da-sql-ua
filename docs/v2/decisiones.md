@@ -116,7 +116,7 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 
 **Implementado** en `f4f21bd` (Fase 4): `CsvHeader.cs` valida la cabecera, `CsvTagLoader` lee por nombre, y `tags.example.csv`, `demo-500.tags.csv` y `Generate-LoadTestTags.ps1` pasaron a 12 columnas, todas con `SOURCE=OPCDA`. Lo verificado son los tests: todavía nadie levantó el gateway con estos CSV contra Matrikon, y ningún CSV del repositorio declara una fila `SQL`.
 
-**Pendientes.** Qué valor lleva `DATA_TYPE` en una fila SQL (bloque de mapeo de datos). Qué hace el validador con `SCAN_RATE_MS` y `DEADBAND` en filas SQL, que son parámetros del grupo OPC DA y no aplican al polling de R4 (bloque de cache y ritmos).
+**Pendientes cerrados.** Los dos que este bloque dejaba abiertos ya estaban resueltos en la Fase 1 y la nota había quedado vieja. `DATA_TYPE` en una fila SQL lo cierran V2-14 (un analógico se declara `Float`) y V2-15 (un booleano llega como número), y qué conjunto de tipos se acepta lo cierra V2-24. `SCAN_RATE_MS` y `DEADBAND` los cierra V2-22: quedan en su default, el gateway los ignora y el validador avisa sin rechazar la fila.
 
 **Flojedades conocidas de la implementación**, anotadas en la revisión del código y no corregidas porque ninguna cambia el comportamiento con una cabecera bien escrita:
 
@@ -542,3 +542,19 @@ degradaría tags sanos que solo esperan su próximo ciclo de scan.
 entera es un escenario distinto, con `TS` congelado y `Q` en el último valor bueno.
 No está decidido cómo se detecta ni si hace falta. Se evalúa en la Fase 5, donde
 "base caída" ya es uno de los escenarios.
+
+---
+
+### V2-24 — Qué `DATA_TYPE` acepta una fila SQL
+
+**Decisión.** En una fila con `SOURCE=SQL` se aceptan `Float`, `Boolean` e `Int32`. `String` es **error de carga**, igual que un `SOURCE` vacío: la carga falla y el gateway no arranca. En filas DA no cambia nada.
+
+**Por qué `String` no puede existir en una fila SQL.** `V` es `real` (P1) y mi padre confirmó que no hay tags de texto (P2). De esa columna no sale una cadena nunca, así que un tag SQL declarado `String` no se actualizaría jamás.
+
+**Por qué error y no aviso, a diferencia de V2-22.** La asimetría es deliberada y el criterio es si el valor sobrante afecta el comportamiento. Un `SCAN_RATE_MS` heredado de copiar una fila DA no afecta nada: el tag funciona igual y el aviso alcanza. Un `String` en una fila SQL deja el tag muerto, y muerto en silencio: `TryScale` devuelve `false`, el tag no se actualiza y desde UA se ve igual que una fuente caída. Es exactamente la deuda heredada que V2-15 deja anotada —`TryScale` no distingue "tipo mal declarado" de "valor imposible"— y el mismo razonamiento de V2-5 para `SOURCE` obligatorio: que falle la carga es más barato que diagnosticarlo en `UaExpert`.
+
+**Por qué se acepta `Int32` y no solo `Float`.** El caso ya existe en `TryScale` y `real` transporta enteros chicos sin problema, así que un contador declarado `Int32` funciona. Restringir a `Float` sería arbitrario, como lo hubiera sido prohibir `Boolean` en V2-15. El límite real es la precisión del `real` de origen, no el enum: más allá de unos 7 dígitos significativos un entero pierde exactitud, y eso ya es una propiedad del dato de origen y no algo que el gateway pueda arreglar declarando otro tipo.
+
+**Dónde se implementa.** En la validación del CSV, junto al resto de las reglas de carga, no en el driver: el driver entrega lo que la tabla contiene y quién interpreta el tipo declarado es la cache (V2-15). El código va en la tanda delegable de la Fase 4, con el validador.
+
+**Costo.** Una regla más en la validación, que cruza dos columnas (`SOURCE` y `DATA_TYPE`) en vez de validar cada una por separado. Es el primer cruce entre columnas del CSV; hasta ahora cada una se validaba sola.

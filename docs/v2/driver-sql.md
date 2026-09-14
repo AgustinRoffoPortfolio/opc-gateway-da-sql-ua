@@ -69,12 +69,9 @@ sin ellas se omite. La misma pieza que protege el secreto hace el salteo.
 
 ### Qué NO se verificó todavía
 
-- **Reconexión (R5).** El driver no tiene política de reintentos adentro por
-  diseño (V2-10); vive en el host y se prueba en el paso 5.
-- **El mapeo contra la base real.** Se verificó con filas construidas a mano
-  (paso 3, más abajo); que lo que llega de `CURR_DATA` produzca las muestras
-  esperadas se prueba de punta a punta en el paso 5.
-- **Timeout de consulta.** Configurado, sin provocar todavía.
+Los tres se cerraron en el paso 5, más abajo: la reconexión (R5) y el timeout
+de consulta se provocaron cortando el contenedor, y el mapeo corrió contra
+`CURR_DATA` en el ciclo de polling.
 
 ## Fase 3, paso 3 — Mapeo de fila a `TagSample`
 
@@ -106,3 +103,75 @@ final, booleano que llega como número, y muestra con calidad utilizable pero
 sin valor.
 
 **Resultado:** 128 correctos, 0 con error, 2,7 s.
+
+## Fase 3, paso 5 — Polling, reconexión y tags ausentes
+
+**13/09/2026.**
+
+### Números medidos
+
+Son del driver SQL corriendo en este repo, contra la base del simulador en
+Docker. No son números de la v1 ni de la línea base.
+
+| Qué | Valor |
+|---|---|
+| Detección de la base caída | ~10 s: el `CommandTimeout`, no el intervalo de polling |
+| Recuperación | 40 s: dos esperas de reconexión de 15 s más el arranque de SQL Server |
+| Ciclo SQL con 10 filas | 3,5 ms el último, 15,8 ms de promedio, 44,3 ms el máximo |
+| DA durante el corte de SQL | 234 ciclos, 0 fallos, 0 desconexiones |
+| SQL tras el ciclo completo | 7 ciclos, 2 fallos, 2 conexiones, 1 desconexión |
+
+El promedio de 15,8 ms está inflado por el arranque de ADO.NET en el primer
+ciclo y se midió sobre 4 ciclos, que no alcanzan para diluirlo. Si el número se
+cita afuera, va con esa aclaración o se vuelve a medir con más ciclos.
+
+### Cómo se provocó la caída
+
+Con `docker compose stop`, no con un mock. El stack trace real mostró
+`Error Number: -2`, que es el timeout de ADO.NET, y con eso quedó confirmado
+V2-20: una conexión abierta no se entera de que se cayó la base hasta que falla
+una operación. El fallo de la consulta es el mecanismo de detección, y por eso
+la detección tarda el timeout y no el polling.
+
+El log de la corrida no se versiona: quedó en `scratch/`, que git ignora.
+
+### La fuente caída no arrastró a la otra
+
+La fila de DA de la tabla es evidencia del primer escenario de la Fase 5 —base
+caída sin afectar a DA— obtenida de rebote en esta corrida: con SQL cortado y
+reconectando, DA completó 234 ciclos sin un solo fallo ni desconexión. Falta
+el escenario inverso y la verificación en UaExpert, que son de la Fase 5.
+
+### Tags declarados que la consulta no trae (V2-21)
+
+El primer caso de V2-21 quedó implementado: el cruce entre lo declarado y lo
+recibido vive en `TagCache.MissingTags`, y el host publica `RowMissing` —mismo
+`StatusCode` que `ItemRejected`, otro nombre— y avisa una vez por tag y por
+sesión.
+
+**Verificado con tests, no de punta a punta.** Hoy no se puede ver funcionando:
+el CSV todavía no declara tags con origen SQL (V2-5 es de la Fase 4), así que
+la lista de declarados para SQL viene vacía y no hay nada que pueda faltar. Lo
+sostienen tres tests sobre `TagCache`, de los cuales el que importa es el de
+mayúsculas: es el que falla si alguien desalinea el criterio de comparación de
+las dos puntas, que es la forma en que este cruce puede romperse en silencio
+contra la base real. Ver un `Bad` real en UaExpert por un tag declarado y
+ausente queda como verificación de la Fase 4.
+
+**Lo que sí quedó probado de rebote es el filtrado de R3:** con los diez tags
+leídos y ninguno declarado como SQL, la cache los descartó enteros. De la tabla
+solo entra lo que el CSV declara.
+
+### Lo que quedó flojo y se sabe
+
+- **El comentario de `SqlTagSource.ReadRows` no dice la verdad.** Afirma que una
+  fila rota se saltea y la lectura sigue, pero lo único que se saltea es un
+  `TAG` nulo o vacío: si falla la lectura del timestamp, se pierden las diez mil
+  filas. Hay que corregir el comentario o el código.
+- **Los 5 tests de integración se omiten aun con el contenedor arriba.** La
+  condición de omisión mira las variables de entorno, así que dependen de cómo
+  quedó la sesión de PowerShell y no del estado real de la base.
+- **El aviso de anomalías del mapeo se repite tras una reconexión.** El estado
+  entre ciclos no se reinicia al abrir una sesión nueva, así que la huella se
+  vuelve a loguear aunque no haya cambiado. Es aceptable —una reconexión es
+  información— pero no estaba escrito.

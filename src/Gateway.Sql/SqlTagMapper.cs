@@ -48,8 +48,9 @@ public sealed class SqlTagMapper
         // nombre. Si igual llegaran dos, quedarse con una es lo correcto; con
         // el comparador por defecto entrarian las dos y una pisaria a la otra
         // recien en la cache, mas lejos del origen. Es el mismo criterio que
-        // TagKeyComparer aplica del lado de las definiciones (V2-17).
-        var samples = new Dictionary<string, TagSample>(rows.Count, StringComparer.OrdinalIgnoreCase);
+        // El mismo criterio que usan las definiciones y el cruce de ausentes
+        // (V2-17): un solo lugar decide como se comparan los nombres SQL.
+        var samples = new Dictionary<string, TagSample>(rows.Count, TagKeyComparer.ComparerFor(TagSource.Sql));
 
         var nullValues = 0;
         var nullQualities = 0;

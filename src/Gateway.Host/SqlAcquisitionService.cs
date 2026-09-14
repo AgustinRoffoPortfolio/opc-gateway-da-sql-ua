@@ -176,6 +176,7 @@ public sealed class SqlAcquisitionService
         _connected = true;
         _reconnectAttempts = 0;
         _lastError = null;
+        _loggedMissing.Clear();   // "una vez por sesion" de V2-21
         Interlocked.Increment(ref _connections);
 
         Log.Information("Driver SQL conectado a {Host}:{Puerto}, consultando cada {Segundos} s",
@@ -195,6 +196,7 @@ public sealed class SqlAcquisitionService
                 // gateway en tener el dato disponible, no cuanto tarda la base.
                 result = _mapper.Map(source.ReadRows());
                 _cache.Update(TagSource.Sql, result.Samples);
+                PublishMissingRows(result);
             }
             finally
             {
@@ -209,6 +211,38 @@ public sealed class SqlAcquisitionService
             token.WaitHandle.WaitOne(TimeSpan.FromSeconds(_options.PollingIntervalSeconds));
         }
     }
+
+    /// <summary>
+    /// Publica Bad para los tags declarados con origen SQL que la consulta no
+    /// trajo (V2-21, primer caso; P9).
+    /// </summary>
+    /// <remarks>
+    /// El cruce lo hace la cache, que es la unica que conoce las definiciones y
+    /// el comparador por fuente; aca queda decidir que calidad se publica y
+    /// avisar. Update por si sola no alcanza: solo toca lo que llega, asi que un
+    /// tag ausente se quedaria en WaitingForInitialData —Bad, pero por otra
+    /// causa y sin aviso—. La consulta trae la tabla entera, asi que "no vino"
+    /// alcanza para concluir "no esta": no hace falta el paso intermedio por
+    /// NotConnected que si necesita DA en el primer intento.
+    /// </remarks>
+    private void PublishMissingRows(SqlMappingResult result)
+    {
+        var missing = _cache.MissingTags(TagSource.Sql, result.Samples);
+
+        if (missing.Count == 0)
+            return;
+
+        _cache.Update(TagSource.Sql, missing.ToDictionary(
+            tag => tag,
+            _ => TagSample.NoData(TagQuality.RowMissing)));
+
+        // Una vez por sesion y no por ciclo: a 20 s de polling, avisar siempre
+        // inunda el log. Una reconexion vuelve a avisar, que es correcto.
+        foreach (var tag in missing.Where(_loggedMissing.Add))
+            Log.Warning("El tag {Tag} esta declarado con origen SQL pero la consulta no lo trajo: revisar el CSV o la tabla", tag);
+    }
+
+    private readonly HashSet<string> _loggedMissing = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Loguea los contadores del mapeo cuando cambian respecto del ciclo

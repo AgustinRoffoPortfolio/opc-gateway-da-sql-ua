@@ -71,6 +71,14 @@ public readonly record struct TagQuality(
     public static readonly TagQuality UnknownTag =
         new(QualityMaster.Bad, QualitySubstatus.BadConfigurationError, QualityLimit.NotLimited);
 
+    /// El tag esta declarado en el CSV con origen SQL pero la consulta no lo
+    /// trajo: existe de este lado y no en la tabla. Mismo StatusCode que
+    /// ItemRejected —es el mismo error de configuracion— con otro nombre,
+    /// porque un log que dice "rechazado" manda a buscar un servidor DA que
+    /// en este camino no existe.
+    public static readonly TagQuality RowMissing =
+        new(QualityMaster.Bad, QualitySubstatus.BadConfigurationError, QualityLimit.NotLimited);
+
     /// Llego un valor pero no convierte al DataType declarado en el CSV.
     public static readonly TagQuality ConversionError =
         new(QualityMaster.Bad, QualitySubstatus.BadConfigurationError, QualityLimit.NotLimited);

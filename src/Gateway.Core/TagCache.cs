@@ -122,6 +122,38 @@ public sealed class TagCache
         _definitionsByKey.Keys.Where(k => k.Source == source).Select(k => k.SourceTag);
 
     /// <summary>
+    /// Nombres declarados para una fuente que no aparecen entre los recibidos.
+    /// </summary>
+    /// <remarks>
+    /// El cruce vive aca y no en el consumidor porque el criterio de comparacion
+    /// depende de la fuente (V2-17): SQL Server no distingue mayusculas y DA si.
+    /// Preguntandole al diccionario de definiciones, ese criterio queda
+    /// garantizado por construccion en vez de depender de que quien llama arme
+    /// su coleccion con el mismo comparador.
+    /// </remarks>
+    public IReadOnlyCollection<string> MissingTags(TagSource source, IReadOnlyDictionary<string, TagSample> received)
+    {
+        // El set se arma con el comparador de la fuente en vez de usar el
+        // ContainsKey del diccionario recibido, para que el criterio no dependa
+        // de como lo armo quien llama. Es una pasada por las filas recibidas
+        // por ciclo, no una por cada tag declarado.
+        var arrived = new HashSet<string>(received.Keys, TagKeyComparer.ComparerFor(source));
+
+        var missing = new List<string>();
+
+        foreach (var key in _definitionsByKey.Keys)
+        {
+            if (key.Source != source)
+                continue;
+
+            if (!arrived.Contains(key.SourceTag))
+                missing.Add(key.SourceTag);
+        }
+
+        return missing;
+    }
+
+    /// <summary>
     /// Fuente y nombre de origen que alimentan a un nodo UA, o null si el
     /// nombre no esta configurado. Es para la vista de diagnostico: ver los dos
     /// nombres juntos es lo que permite decidir si un tag mudo es culpa del CSV

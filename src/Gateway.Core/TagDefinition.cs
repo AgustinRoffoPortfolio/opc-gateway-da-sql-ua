@@ -48,7 +48,10 @@ public sealed class TagKeyComparer : IEqualityComparer<TagKey>
 
     private TagKeyComparer() { }
 
-    private static StringComparer ComparerFor(TagSource source) =>
+    /// Criterio de comparacion de nombres para una fuente. Publico porque el
+    /// cruce de declarados contra recibidos (MissingTags) tiene que usar el
+    /// mismo, y si cada lugar elige el suyo empiezan a divergir.
+    public static StringComparer ComparerFor(TagSource source) =>
         source == TagSource.Sql ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     public bool Equals(TagKey x, TagKey y) =>

@@ -58,6 +58,39 @@ public class TagCacheTests
         Assert.Equal(["TIC101.PV"], cache.SourceTags(TagSource.Sql));
     }
 
+        [Fact]
+    public void MissingTags_DevuelveLosDeclaradosQueNoVinieron()
+    {
+        // V2-21, primer caso: el tag existe en el CSV y no en la tabla.
+        var cache = new TagCache([
+            DefOf("PLANTA_01.PRESENTE", TagSource.Sql, "TIC101.PV"),
+            DefOf("PLANTA_01.AUSENTE", TagSource.Sql, "TIC999.PV"),
+            DefOf("PLANTA_01.OTRA_FUENTE", TagSource.OpcDa, "TIC888.PV")]);
+
+        var missing = cache.MissingTags(TagSource.Sql, SampleOf("TIC101.PV", 42.0));
+
+        // El de DA no entra aunque tampoco vino: se pregunta por una fuente.
+        Assert.Equal(["TIC999.PV"], missing);
+    }
+
+    [Fact]
+    public void MissingTags_IgnoraMayusculas_DelLadoSql()
+    {
+        // SQL Server no distingue mayusculas (V2-17). Si el CSV declara el tag
+        // con otra caja que la tabla, esta igual y no se reporta ausente.
+        var cache = new TagCache([DefOf("PLANTA_01.A", TagSource.Sql, "TIC101.PV")]);
+
+        Assert.Empty(cache.MissingTags(TagSource.Sql, SampleOf("tic101.pv", 42.0)));
+    }
+
+    [Fact]
+    public void MissingTags_ConTodosPresentes_NoDevuelveNada()
+    {
+        var cache = new TagCache([DefOf("PLANTA_01.A", TagSource.Sql, "TIC101.PV")]);
+
+        Assert.Empty(cache.MissingTags(TagSource.Sql, SampleOf("TIC101.PV", 42.0)));
+    }
+
     [Fact]
     public void NombreSql_SeCruzaSinDistinguirMayusculas()
     {

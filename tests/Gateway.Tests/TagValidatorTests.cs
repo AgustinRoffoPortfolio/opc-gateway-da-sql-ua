@@ -150,6 +150,10 @@ public class TagValidatorTests
         Assert.Empty(result.Tags);
         Assert.Single(result.Errors);
         Assert.Contains("SOURCE", result.Errors[0].Message);
+        // El mensaje tiene que hablar de SOURCE y no (solo) de SOURCE_TAG:
+        // como una cadena contiene a la otra, Contains("SOURCE") solo no
+        // distingue los dos casos.
+        Assert.DoesNotContain("SOURCE_TAG", result.Errors[0].Message);
     }
 
     [Fact]
@@ -173,8 +177,11 @@ public class TagValidatorTests
     [InlineData(" SQL ", TagSource.Sql)]
     public void SourceValoresAceptados_CarganConElEnumCorrecto(string source, TagSource esperado)
     {
+        // DATA_TYPE Float y no Double: el caso SQL de este Theory tiene que
+        // seguir siendo una fila valida despues de V2-24, que restringe
+        // DATA_TYPE en filas SQL. Float lo acepta tanto DA como SQL.
         var csv = string.Join('\n', Header,
-            $"PLANTA_01.TAG_A;{source};Random.Real8;Double;1;0;bar;1000;0.1;Read;Tag A;True");
+            $"PLANTA_01.TAG_A;{source};Random.Real8;Float;1;0;bar;1000;0.1;Read;Tag A;True");
 
         var result = CargarDesdeContenido(csv);
 
@@ -212,5 +219,151 @@ public class TagValidatorTests
         Assert.Single(result.Errors);
         Assert.Contains("TAG_NAME_OPC_DA", result.Errors[0].Message);
         Assert.Contains("SOURCE_TAG", result.Errors[0].Message);
+    }
+
+    // Las tres formas de cabecera invalida que CsvHeader distingue de la
+    // cabecera de la v1 (columna faltante, desconocida y repetida), sin
+    // test hasta ahora (flojedad anotada en V2-5).
+
+    [Fact]
+    public void CabeceraConColumnaFaltante_EsErrorDeCarga()
+    {
+        const string headerSinDeadband =
+            "TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS;ACCESS_LEVEL;DESCRIPTION;ENABLED";
+
+        var result = CargarDesdeContenido(headerSinDeadband);
+
+        Assert.Empty(result.Tags);
+        Assert.Contains(result.Errors, e =>
+            e.Message.Contains("falta la columna") && e.Message.Contains("DEADBAND"));
+    }
+
+    [Fact]
+    public void CabeceraConColumnaDesconocida_EsErrorDeCarga()
+    {
+        var headerConColumnaExtra = Header + ";COLUMNA_RARA";
+
+        var result = CargarDesdeContenido(headerConColumnaExtra);
+
+        Assert.Empty(result.Tags);
+        Assert.Contains(result.Errors, e =>
+            e.Message.Contains("no es ninguna de las esperadas") && e.Message.Contains("COLUMNA_RARA"));
+    }
+
+    [Fact]
+    public void CabeceraConColumnaRepetida_EsErrorDeCarga()
+    {
+        var headerConSourceRepetido = Header + ";SOURCE";
+
+        var result = CargarDesdeContenido(headerConSourceRepetido);
+
+        Assert.Empty(result.Tags);
+        Assert.Contains(result.Errors, e =>
+            e.Message.Contains("aparece repetida") && e.Message.Contains("SOURCE"));
+    }
+
+    // A partir de aca, tests de V2-24: que DATA_TYPE acepta una fila SQL.
+
+    [Theory]
+    [InlineData("Float")]
+    [InlineData("Boolean")]
+    [InlineData("Int32")]
+    public void SqlConDataTypeAceptado_Carga(string dataType)
+    {
+        var csv = string.Join('\n', Header,
+            $"PLANTA_01.TAG_A;SQL;TAG_X;{dataType};1;0;bar;0;0;Read;Tag SQL;True");
+
+        var result = CargarDesdeContenido(csv);
+
+        Assert.Empty(result.Errors);
+        Assert.Single(result.Tags);
+        Assert.Equal(TagSource.Sql, result.Tags[0].Source);
+    }
+
+    [Fact]
+    public void SqlConDataTypeString_EsErrorDeCarga()
+    {
+        var csv = string.Join('\n', Header,
+            "PLANTA_01.TAG_A;SQL;TAG_X;String;1;0;bar;0;0;Read;Tag SQL invalido;True");
+
+        var result = CargarDesdeContenido(csv);
+
+        Assert.Empty(result.Tags);
+        Assert.Single(result.Errors);
+        Assert.Contains("PLANTA_01.TAG_A", result.Errors[0].Message);
+        Assert.Contains("String", result.Errors[0].Message);
+    }
+
+    [Fact]
+    public void DaConDataTypeString_SigueSiendoValido()
+    {
+        // En filas DA no cambia nada: String sigue siendo un DATA_TYPE
+        // valido, la restriccion de V2-24 es especifica de SOURCE=SQL.
+        var csv = string.Join('\n', Header,
+            "PLANTA_01.TAG_A;OPCDA;Random.String;String;1;0;bar;1000;0.1;Read;Tag DA string;True");
+
+        var result = CargarDesdeContenido(csv);
+
+        Assert.Empty(result.Errors);
+        Assert.Single(result.Tags);
+    }
+
+    // A partir de aca, tests de V2-22: SCAN_RATE_MS y DEADBAND en filas SQL
+    // avisan sin rechazar la fila.
+
+    [Fact]
+    public void SqlConScanRateYDeadbandEnCero_NoAvisa()
+    {
+        var csv = string.Join('\n', Header,
+            "PLANTA_01.TAG_A;SQL;TAG_X;Float;1;0;bar;0;0;Read;Tag SQL;True");
+
+        var result = CargarDesdeContenido(csv);
+
+        Assert.Empty(result.Errors);
+        Assert.Empty(result.Warnings);
+        Assert.Single(result.Tags);
+    }
+
+    [Fact]
+    public void SqlConScanRateDistintoDeCero_AvisaSinRechazar()
+    {
+        var csv = string.Join('\n', Header,
+            "PLANTA_01.TAG_A;SQL;TAG_X;Float;1;0;bar;1000;0;Read;Tag SQL;True");
+
+        var result = CargarDesdeContenido(csv);
+
+        Assert.Empty(result.Errors);
+        Assert.Single(result.Tags);
+        Assert.Single(result.Warnings);
+        Assert.Contains("PLANTA_01.TAG_A", result.Warnings[0]);
+    }
+
+    [Fact]
+    public void SqlConDeadbandDistintoDeCero_AvisaSinRechazar()
+    {
+        var csv = string.Join('\n', Header,
+            "PLANTA_01.TAG_A;SQL;TAG_X;Float;1;0;bar;0;0.5;Read;Tag SQL;True");
+
+        var result = CargarDesdeContenido(csv);
+
+        Assert.Empty(result.Errors);
+        Assert.Single(result.Tags);
+        Assert.Single(result.Warnings);
+        Assert.Contains("PLANTA_01.TAG_A", result.Warnings[0]);
+    }
+
+    [Fact]
+    public void DaConScanRateYDeadbandDistintosDeCero_NoAvisa()
+    {
+        // El aviso es especifico de SOURCE=SQL: una fila DA con estos
+        // valores es exactamente el caso normal, no un descuido.
+        var csv = string.Join('\n', Header,
+            "PLANTA_01.TAG_A;OPCDA;Random.Real8;Double;1;0;bar;1000;0.1;Read;Tag A;True");
+
+        var result = CargarDesdeContenido(csv);
+
+        Assert.Empty(result.Errors);
+        Assert.Empty(result.Warnings);
+        Assert.Single(result.Tags);
     }
 }

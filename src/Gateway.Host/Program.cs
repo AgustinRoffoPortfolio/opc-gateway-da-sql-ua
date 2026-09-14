@@ -255,8 +255,14 @@ var tagLoadResult = TagValidator.LoadAndValidate(options.TagsCsvPath);
 foreach (var error in tagLoadResult.Errors)
     Log.Warning("Tag invalido, queda fuera de servicio: {Error}", error.Message);
 
-Log.Information("Tags cargados: {Validos} validos, {Invalidos} con error",
-    tagLoadResult.Tags.Count, tagLoadResult.Errors.Count);
+// V2-22 eligio aviso en vez de error porque "el aviso alcanza para que se
+// corrija". Un aviso que no se loguea no alcanza para nada: la fila sigue
+// en servicio, asi que el nivel es Information y no Warning.
+foreach (var warning in tagLoadResult.Warnings)
+    Log.Information("Tag con aviso, sigue en servicio: {Warning}", warning);
+
+Log.Information("Tags cargados: {Validos} validos, {Invalidos} con error, {ConAviso} con aviso",
+    tagLoadResult.Tags.Count, tagLoadResult.Errors.Count, tagLoadResult.Warnings.Count);
 
 // (el calculo de la ventana de antiguedad se movio abajo, antes de tagDefinitions)
 

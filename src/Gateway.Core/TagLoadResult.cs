@@ -8,8 +8,13 @@ public sealed record TagLoadError(int LineNumber, string OpcUaName, string Messa
 
 /// Resultado final de cargar y validar el CSV de tags. Un CSV con errores
 /// no impide arrancar: los tags validos se sirven igual (carga parcial),
-/// Errors queda para loguear o mostrar en un reporte.
-public sealed record TagLoadResult(IReadOnlyList<TagDefinition> Tags, IReadOnlyList<TagLoadError> Errors);
+/// Errors queda para loguear o mostrar en un reporte. Warnings son avisos que
+/// no sacan la fila de servicio (V2-22): mismo destino que Errors, logueo o
+/// reporte, pero sin restar de Tags.
+public sealed record TagLoadResult(
+    IReadOnlyList<TagDefinition> Tags,
+    IReadOnlyList<TagLoadError> Errors,
+    IReadOnlyList<string> Warnings);
 
 /// Una fila que parseo bien, junto con el numero de linea de origen. Uso
 /// interno: sirve de puente entre CsvTagLoader (lee la fila) y TagValidator

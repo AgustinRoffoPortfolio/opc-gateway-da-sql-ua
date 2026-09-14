@@ -119,8 +119,16 @@ internal static class CsvTagLoader
         var normalized = field.Trim().Replace("_", "");
         if (!Enum.TryParse<TagSource>(normalized, ignoreCase: true, out var value) || !Enum.IsDefined(value))
         {
+            // A diferencia de ParseEnum, la lista no sale solo de
+            // Enum.GetNames: "OPC_DA" es un alias aceptado que no es nombre
+            // de ningun miembro del enum, asi que se agrega a mano. El resto
+            // sale del enum para que, si algun dia suma una fuente, el
+            // mensaje no mienta.
+            var aceptados = Enum.GetNames<TagSource>()
+                .Select(n => n.ToUpperInvariant())
+                .Append("OPC_DA");
             throw new FormatException(
-                $"SOURCE '{field}' no es valido (valores aceptados: OPCDA, OPC_DA, SQL).");
+                $"SOURCE '{field}' no es valido (valores aceptados: {string.Join(", ", aceptados)}).");
         }
 
         return value;

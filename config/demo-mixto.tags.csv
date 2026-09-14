@@ -1,0 +1,30 @@
+# Escenario mixto: 10 filas OPC DA (las de tags.example.csv, mismo escenario de
+# aliases) + 10 filas SQL del catalogo del simulador + 1 fila SQL ausente a
+# proposito, para ver un Bad real en UaExpert (V2-21). Total 21.
+# Del lado DA se empareja con config/aliases.example.csv (Aliases: 10).
+# Del lado SQL, con tools/SqlSimulator/config/tags.simulator.jsonc.
+# Los nombres UA de las filas SQL van prefijados con SQL. porque chocarian con
+# los de las filas DA: TAG_NAME_OPC_UA es unico y gana el primero.
+# Decimales con PUNTO. SCAN_RATE_MS y DEADBAND en 0 en las filas SQL (V2-22).
+TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS;DEADBAND;ACCESS_LEVEL;DESCRIPTION;ENABLED
+SQL.PLANTA_01.MEDICION.PRESION_ENTRADA;SQL;PLANTA_01_MEDICION_PRESION_ENTRADA;Float;1;0;bar;0;0;Read;Presion de entrada, grupo RAPIDO;True
+SQL.PLANTA_01.MEDICION.PRESION_SALIDA;SQL;PLANTA_01_MEDICION_PRESION_SALIDA;Float;1;0;bar;0;0;Read;Presion de salida, forzada por operador (Q=216);True
+SQL.PLANTA_01.MEDICION.TEMPERATURA_SALIDA;SQL;PLANTA_01_MEDICION_TEMPERATURA_SALIDA;Float;1;0;degC;0;0;Read;Temperatura de salida, grupo MEDIO;True
+SQL.PLANTA_01.MEDICION.CAUDAL_TOTALIZADO;SQL;PLANTA_01_MEDICION_CAUDAL_TOTALIZADO;Float;0.001;0;m3;0;0;Read;Caudal totalizado, con multiplicador;True
+SQL.PLANTA_02.MEDICION.NIVEL_TANQUE;SQL;PLANTA_02_MEDICION_NIVEL_TANQUE;Float;1;0;%;0;0;Read;Nivel de tanque, grupo MEDIO;True
+SQL.PLANTA_02.ESTADO.BOMBA_01;SQL;PLANTA_02_ESTADO_BOMBA_01;Boolean;1;0;;0;0;Read;Bomba 01, booleano que llega como 1.0 (V2-15);True
+SQL.PLANTA_02.MEDICION.HORAS_MARCHA;SQL;PLANTA_02_MEDICION_HORAS_MARCHA;Float;1;0;h;0;0;Read;Horas de marcha, grupo LENTO;True
+SQL.PLANTA_02.MEDICION.DENSIDAD;SQL;PLANTA_02_MEDICION_DENSIDAD;Float;1;0;g/cm3;0;0;Read;Densidad, calidad incierta (Q=64);True
+SQL.PRUEBA.NULO_VALOR;SQL;PRUEBA_NULO_VALOR;Float;1;0;;0;0;Read;V en NULL, se publica Uncertain (V2-16);True
+SQL.PRUEBA.NULO_CALIDAD;SQL;PRUEBA_NULO_CALIDAD;Float;1;0;;0;0;Read;Q en NULL, se publica Uncertain (V2-16);True
+SQL.PRUEBA.TAG_AUSENTE;SQL;PRUEBA_TAG_QUE_NO_EXISTE;Float;1;0;;0;0;Read;Declarado y ausente de la tabla, tiene que salir Bad (V2-21);True
+PLANTA_01.MEDICION.PRESION_ENTRADA;OPCDA;.PLANTA_01_MEDICION_PRESION_ENTRADA;Double;1;0;bar;1000;0.1;Read;Presion de entrada a planta;True
+PLANTA_01.MEDICION.CAUDAL.TOTALIZADO;OPCDA;.PLANTA_01_MEDICION_CAUDAL_TOTALIZADO;Double;0.001;0;m3;5000;0.5;Read;Caudal totalizado;True
+PLANTA_01.MEDICION.TEMPERATURA_SALIDA;OPCDA;.PLANTA_01_MEDICION_TEMPERATURA_SALIDA;Double;1.8;32;F;1000;0.2;Read;Temperatura de salida en Fahrenheit;True
+PLANTA_01.ESTADO.BOMBA_01;OPCDA;.PLANTA_01_ESTADO_BOMBA_01;Boolean;1;0;;500;0;Read;Estado de la bomba 01;True
+PLANTA_01.CONTADOR.CICLOS;OPCDA;.PLANTA_01_CONTADOR_CICLOS;Int32;1;0;;2000;0;Read;Contador de ciclos;True
+PLANTA_01.INFO.RECETA_ACTIVA;OPCDA;.PLANTA_01_INFO_RECETA_ACTIVA;String;1;0;;5000;0;Read;Receta activa en ejecucion;True
+PLANTA_02.MEDICION.NIVEL_TANQUE;OPCDA;.PLANTA_02_MEDICION_NIVEL_TANQUE;Double;0.01;0;%;1000;0.1;Read;Nivel de tanque;True
+PLANTA_02.MEDICION.PRESION_SALIDA.INSTANTANEA;OPCDA;.PLANTA_02_MEDICION_PRESION_SALIDA_INSTANTANEA;Double;1;-14.7;psi;1000;0.1;Read;Presion de salida instantanea;True
+PLANTA_02.ESTADO.VALVULA_03;OPCDA;.PLANTA_02_ESTADO_VALVULA_03;Boolean;1;0;;500;0;Read;Estado de la valvula 03;True
+PLANTA_02.CONTADOR.ALARMAS_ACTIVAS;OPCDA;.PLANTA_02_CONTADOR_ALARMAS_ACTIVAS;Int32;1;0;;2000;0;Read;Contador de alarmas activas;True

@@ -11,7 +11,6 @@ internal static class CsvTagLoader
 {
     private const char Separator = ';';
     private const char CommentPrefix = '#';
-    private const int ExpectedColumns = 11;
 
     internal static CsvParseResult Parse(string path)
     {
@@ -23,39 +22,51 @@ internal static class CsvTagLoader
         var parsedRows = new List<ParsedTagRow>();
         var errors = new List<TagLoadError>();
 
-        // La primera fila no comentada es la cabecera, se saltea.
+        if (rows.Length == 0)
+        {
+            return new CsvParseResult(parsedRows, errors);
+        }
+
+        // La primera fila no comentada es la cabecera. Con el CSV a 12
+        // columnas (V2-5) dejo de ser decorativa: de ella sale que columna es
+        // cual, y sin una cabecera valida ninguna fila se puede interpretar
+        // con confianza.
+        var (headerLine, headerLineNumber) = rows[0];
+        if (!CsvHeader.TryParse(headerLine.Split(Separator), headerLineNumber, path, out var columnIndex, out var headerErrors))
+        {
+            errors.AddRange(headerErrors);
+            return new CsvParseResult(parsedRows, errors);
+        }
+
+        var expectedColumns = columnIndex.Count;
+
         for (var i = 1; i < rows.Length; i++)
         {
             var (line, lineNumber) = rows[i];
             var fields = line.Split(Separator);
-            if (fields.Length != ExpectedColumns)
+            if (fields.Length != expectedColumns)
             {
                 errors.Add(new TagLoadError(lineNumber, "",
-                    $"'{path}' linea {lineNumber}: tiene {fields.Length} columnas, se esperaban {ExpectedColumns} ('{line}')."));
+                    $"'{path}' linea {lineNumber}: tiene {fields.Length} columnas, se esperaban {expectedColumns} ('{line}')."));
                 continue;
             }
 
-            var opcUaName = fields[0];
+            var opcUaName = fields[columnIndex["TAG_NAME_OPC_UA"]];
             try
             {
                 var tag = new TagDefinition(
                     OpcUaName: opcUaName,
-                    // PROVISORIO (Fase 3): el CSV todavia tiene 11 columnas y no
-                    // declara SOURCE. Hasta que la Fase 4 implemente V2-5 completo
-                    // -12 columnas, lectura por cabecera y validacion de SOURCE-
-                    // todo lo que entra por CSV es OPC DA, que es lo unico que
-                    // habia en la v1. No se puede cargar un tag SQL asi.
-                    Source: TagSource.OpcDa,
-                    SourceTag: fields[1],
-                    DataType: ParseEnum<TagDataType>(fields[2], "DATA_TYPE"),
-                    Multiplier: ParseDouble(fields[3], "MULTIPLICADOR"),
-                    Offset: ParseDouble(fields[4], "OFFSET"),
-                    EngineeringUnit: fields[5],
-                    ScanRateMs: int.Parse(fields[6], CultureInfo.InvariantCulture),
-                    Deadband: ParseDouble(fields[7], "DEADBAND"),
-                    AccessLevel: ParseEnum<TagAccessLevel>(fields[8], "ACCESS_LEVEL"),
-                    Description: fields[9],
-                    Enabled: bool.Parse(fields[10]));
+                    Source: ParseSource(fields[columnIndex["SOURCE"]]),
+                    SourceTag: fields[columnIndex["SOURCE_TAG"]],
+                    DataType: ParseEnum<TagDataType>(fields[columnIndex["DATA_TYPE"]], "DATA_TYPE"),
+                    Multiplier: ParseDouble(fields[columnIndex["MULTIPLICADOR"]], "MULTIPLICADOR"),
+                    Offset: ParseDouble(fields[columnIndex["OFFSET"]], "OFFSET"),
+                    EngineeringUnit: fields[columnIndex["EU"]],
+                    ScanRateMs: int.Parse(fields[columnIndex["SCAN_RATE_MS"]], CultureInfo.InvariantCulture),
+                    Deadband: ParseDouble(fields[columnIndex["DEADBAND"]], "DEADBAND"),
+                    AccessLevel: ParseEnum<TagAccessLevel>(fields[columnIndex["ACCESS_LEVEL"]], "ACCESS_LEVEL"),
+                    Description: fields[columnIndex["DESCRIPTION"]],
+                    Enabled: bool.Parse(fields[columnIndex["ENABLED"]]));
                 parsedRows.Add(new ParsedTagRow(lineNumber, tag));
             }
             catch (Exception ex)
@@ -93,6 +104,23 @@ internal static class CsvTagLoader
         {
             throw new FormatException(
                 $"{columnName} '{field}' no es valido (valores aceptados: {string.Join(", ", Enum.GetNames<TEnum>())}).");
+        }
+
+        return value;
+    }
+
+    /// SOURCE no puede resolverse con ParseEnum: Enum.TryParse con ignoreCase
+    /// resuelve "OPCDA" contra el miembro OpcDa, pero no "OPC_DA", que V2-5
+    /// acepta igual. Se normaliza sacando el guion bajo y los espacios de los
+    /// costados antes de resolver contra el enum; no hay default, un SOURCE
+    /// vacio cae por el mismo camino que uno desconocido.
+    private static TagSource ParseSource(string field)
+    {
+        var normalized = field.Trim().Replace("_", "");
+        if (!Enum.TryParse<TagSource>(normalized, ignoreCase: true, out var value) || !Enum.IsDefined(value))
+        {
+            throw new FormatException(
+                $"SOURCE '{field}' no es valido (valores aceptados: OPCDA, OPC_DA, SQL).");
         }
 
         return value;

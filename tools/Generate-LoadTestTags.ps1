@@ -83,7 +83,7 @@ $stamp    = (Get-Date).ToString('yyyy-MM-dd HH:mm')
 
 $uaLines.Add("# Generado por Generate-LoadTestTags.ps1 el $stamp - $TagCount tags")
 $uaLines.Add("# Nombres inventados. Decimales con PUNTO (InvariantCulture).")
-$uaLines.Add('TAG_NAME_OPC_UA;TAG_NAME_OPC_DA;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS;DEADBAND;ACCESS_LEVEL;DESCRIPTION;ENABLED')
+$uaLines.Add('TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS;DEADBAND;ACCESS_LEVEL;DESCRIPTION;ENABLED')
 $daLines.Add("# Generado por Generate-LoadTestTags.ps1 el $stamp - $TagCount aliases")
 
 # El XML no lleva cabecera de comentario: no sabemos si el parser de Matrikon
@@ -106,7 +106,7 @@ for ($device = 1; $device -le $deviceCount -and $emitted -lt $TagCount; $device+
 
         # El alias vive en el grupo raiz: el ItemID resultante lleva punto inicial.
         # Por eso el XML guarda el nombre SIN punto y el CSV de tags lo agrega.
-        $uaLines.Add("$plantId.$deviceId.$name;.$aliasName;$type;$mult;$offset;$eu;$ScanRateMs;0;Read;$name de $deviceId;True")
+        $uaLines.Add("$plantId.$deviceId.$name;OPCDA;.$aliasName;$type;$mult;$offset;$eu;$ScanRateMs;0;Read;$name de $deviceId;True")
         $daLines.Add(",$aliasName,$daItem,0,0,0,0,0,,,,,,,0,Alias,0,1,,0,0")
         # Los parentesis extra son obligatorios: dentro de un llamado a metodo
         # PowerShell toma la coma como separador de argumentos del metodo, y el

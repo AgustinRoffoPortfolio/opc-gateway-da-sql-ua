@@ -368,6 +368,10 @@ public class GatewayNodeManager : CustomNodeManager2
             TagDataType.Boolean => DataTypeIds.Boolean,
             TagDataType.Int32 => DataTypeIds.Int32,
             TagDataType.String => DataTypeIds.String,
+
+            // V2-14: V es real (float de 4 bytes) y se publica como Float, no
+            // como Double, para no inventar precision que el dato no tiene.
+            TagDataType.Float => DataTypeIds.Float,
             _ => throw new InvalidOperationException(
                 $"Tipo de dato no soportado para '{tagName}': {dataType}")
         };

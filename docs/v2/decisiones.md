@@ -114,9 +114,16 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 
 **Detalle de implementación.** `SOURCE` no puede usar el `ParseEnum<TEnum>` genérico: `Enum.TryParse` con `ignoreCase` resuelve `OPCDA` contra el miembro `OpcDa`, pero no `OPC_DA`, que R2 acepta. Necesita normalizar el guion bajo antes de resolver.
 
-**Consecuencia inmediata.** Los CSV de `config/` todavía no tienen la columna `SOURCE`. Entre esta decisión y la Fase 4, el gateway no levanta.
+**Implementado** en `f4f21bd` (Fase 4): `CsvHeader.cs` valida la cabecera, `CsvTagLoader` lee por nombre, y `tags.example.csv`, `demo-500.tags.csv` y `Generate-LoadTestTags.ps1` pasaron a 12 columnas, todas con `SOURCE=OPCDA`. Lo verificado son los tests: todavía nadie levantó el gateway con estos CSV contra Matrikon, y ningún CSV del repositorio declara una fila `SQL`.
 
 **Pendientes.** Qué valor lleva `DATA_TYPE` en una fila SQL (bloque de mapeo de datos). Qué hace el validador con `SCAN_RATE_MS` y `DEADBAND` en filas SQL, que son parámetros del grupo OPC DA y no aplican al polling de R4 (bloque de cache y ritmos).
+
+**Flojedades conocidas de la implementación**, anotadas en la revisión del código y no corregidas porque ninguna cambia el comportamiento con una cabecera bien escrita:
+
+- Tres de los cuatro errores de cabecera (columna faltante, desconocida y repetida) no tienen test. El único caso cubierto es el de la cabecera de la v1.
+- En `SourceAusente_EsErrorDeCarga`, el `Assert.Contains("SOURCE", ...)` también pasaría si el mensaje hablara de `SOURCE_TAG`: una cadena contiene a la otra.
+- `ParseSource` normaliza con `Replace("_", "")`, que saca todos los guiones bajos y no solo el de `OPC_DA`, así que acepta `S_Q_L`. Se deja: arreglarlo bien cuesta más que el problema.
+- El mensaje de error de `ParseSource` lista los valores aceptados a mano, no con `Enum.GetNames` como hace `ParseEnum`. Si el enum suma una fuente, el mensaje miente. El motivo de la copia es que `OPC_DA` no sale de `GetNames`.
 
 ---
 

@@ -82,12 +82,26 @@ public sealed class SqlAcquisitionService
     /// <summary>
     /// Cuanto puede tardar un ciclo antes de considerarlo colgado.
     /// </summary>
-    /// <remarks>
-    /// PROVISORIO: se fija al final de este paso con la medicion que pide V2-13.
-    /// No se deriva del intervalo de polling como del lado DA: con 30 s de
-    /// polling, cinco intervalos serian 150 s para algo que el CommandTimeout
-    /// corta a los 10.
-    /// </remarks>
+/// <remarks>
+/// Se deriva del CommandTimeout y no del intervalo de polling. La ventana que
+/// se mide es la del ciclo —cycleStartedTicks se pone al empezar y se limpia al
+/// terminar—, asi que la espera entre ciclos no participa: derivar de 30 s de
+/// polling daria 150 s para algo que el timeout corta a los 10.
+///
+/// El doble del timeout, y no menos, porque una consulta que se pasa del
+/// timeout ya cae sola en Reconnecting: avisar antes seria ruido sobre algo que
+/// se resuelve solo. Lo que este umbral detecta es lo que el timeout no cubre
+/// —el mapeo de 10.000 filas, la transferencia del reader—, que es el unico
+/// tramo donde acá puede pasar lo mismo que en DA: colgado sin morir.
+///
+/// El piso de 20 s protege de un CommandTimeout configurado muy chico, que
+/// haria saltar Stalled en ciclos sanos. Medido: con la base caida la deteccion
+/// tarda el timeout (~10 s) y no el polling.
+///
+/// Queda afuera un Connect() colgado: ahi _connected todavia es false y el
+/// estado sale Disconnected o Reconnecting, que no es falso pero no distingue
+/// "colgado conectando" de "esperando para reintentar".
+/// </remarks>
     private TimeSpan StallThreshold =>
         TimeSpan.FromSeconds(Math.Max(_options.CommandTimeoutSeconds * 2, 20));
 

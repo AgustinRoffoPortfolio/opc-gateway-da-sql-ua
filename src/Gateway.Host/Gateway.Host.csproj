@@ -12,7 +12,6 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.10" />
     <PackageReference Include="Serilog" Version="4.4.0" />
     <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
@@ -20,6 +19,22 @@
 
   <ItemGroup>
     <Content Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Override local de credenciales (V2-26), opcional y no versionado
+         (.gitignore). Condition evita que el build falle en una maquina donde
+         el desarrollador no lo creo todavia. CopyToPublishDirectory=Never:
+         dotnet run lo necesita en el output de build, pero el paquete
+         publicado no puede llevarse las credenciales reales de quien publica
+         (V2-26). -->
+    <Content Include="appsettings.Local.json" Condition="Exists('appsettings.Local.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </Content>
+    <!-- Plantilla versionada del override local (V2-26): sin valores reales,
+         viaja al output y al paquete publicado para que quien despliegue sepa
+         que copiar y completar. -->
+    <Content Include="appsettings.Local.example.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <!-- El CSV de ejemplo viaja con la salida para que el paquete publicado
@@ -38,7 +53,6 @@
     <PlatformTarget>x86</PlatformTarget>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <UserSecretsId>7e3944f4-0bf0-4e4e-9cae-bb5401957779</UserSecretsId>
   </PropertyGroup>
 
 </Project>

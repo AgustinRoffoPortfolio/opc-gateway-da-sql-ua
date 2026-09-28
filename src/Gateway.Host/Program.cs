@@ -47,11 +47,15 @@ if (args.Contains("--da-only"))
 var configuration = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
     .AddJsonFile("appsettings.json", optional: false)
-    // Override local de las credenciales SQL (V2-7). Va despues del JSON para
-    // pisar sus claves vacias, y antes de las variables de entorno para que
-    // estas sigan ganando: son el mecanismo previsto para el servidor de TEST,
-    // donde no hay user-secrets (P10).
-    .AddUserSecrets<Program>(optional: true)
+    // Override local de las credenciales SQL (V2-7, V2-26). Archivo opcional
+    // junto al ejecutable, no versionado (.gitignore), cargado despues del
+    // JSON para pisar sus claves vacias y antes de las variables de entorno
+    // para que estas sigan ganando: son el mecanismo previsto para el
+    // servidor de TEST (P10). Reemplaza a user-secrets: ese mecanismo solo
+    // carga en DOTNET_ENVIRONMENT=Development y el paquete publicado no fija
+    // ninguno, asi que en TEST los secretos nunca se leian sin que nada lo
+    // avisara.
+    .AddJsonFile("appsettings.Local.json", optional: true)
     .AddEnvironmentVariables()
     .Build();
 
@@ -67,7 +71,8 @@ var daOptions = configuration.GetSection("Da").Get<DaOptions>()
 var webOptions = configuration.GetSection("Web").Get<WebOptions>() ?? new WebOptions();
 
 // Los valores reales de User y Password no estan en el JSON versionado: llegan
-// por user-secrets o variables de entorno y pisan las claves vacias (V2-7).
+// por appsettings.Local.json o variables de entorno y pisan las claves vacias
+// (V2-7, V2-26).
 var sqlOptions = configuration.GetSection("Sql").Get<SqlOptions>() ?? new SqlOptions();
 
 // Logger de toda la aplicacion.
@@ -264,6 +269,24 @@ foreach (var warning in tagLoadResult.Warnings)
 Log.Information("Tags cargados: {Validos} validos, {Invalidos} con error, {ConAviso} con aviso",
     tagLoadResult.Tags.Count, tagLoadResult.Errors.Count, tagLoadResult.Warnings.Count);
 
+// Si la fuente SQL arranca (B1, invariante 8): sin tags SOURCE=SQL en el CSV
+// no se exige Sql:*, y con tags SQL declarados la fuente entera queda
+// inactiva ante una configuracion invalida en vez de reintentar para siempre
+// contra parametros que nunca van a conectar.
+var hasSqlTags = tagLoadResult.Tags.Any(t => t.Source == TagSource.Sql);
+var sqlActivation = SqlSourceActivation.Decide(hasSqlTags, sqlOptions);
+
+foreach (var error in sqlActivation.Errors)
+    Log.Error("Configuracion SQL invalida: {Error}", error);
+foreach (var warning in sqlActivation.Warnings)
+    Log.Warning("Configuracion SQL: {Warning}", warning);
+
+if (hasSqlTags && !sqlActivation.Active)
+    Log.Error("Fuente SQL inactiva: hay tags SOURCE=SQL en el CSV pero Sql:* no paso la validacion " +
+              "(ver errores arriba). Esos tags quedan sin actualizar; el resto del gateway sigue.");
+else if (!hasSqlTags)
+    Log.Information("No hay tags SOURCE=SQL en el CSV; la fuente SQL no se activa y Sql:* no se exige.");
+
 // (el calculo de la ventana de antiguedad se movio abajo, antes de tagDefinitions)
 
 // Frontera entre los dos mundos: el driver DA la llena, el node manager la lee.
@@ -312,14 +335,22 @@ daThread.Start();
 // Hilo propio para SQL, separado del de DA y del timer de publicacion: es el
 // invariante 8, una consulta lenta o una base caida no pueden frenar a la otra
 // fuente. Sin SetApartmentState: eso es una exigencia de COM, no de ADO.NET.
+// Solo se crea si la fuente esta activa (B1): sin esto, una configuracion
+// invalida reconectaria para siempre contra parametros que nunca van a andar.
 var sqlShutdown = new CancellationTokenSource();
-var sqlAcquisition = new SqlAcquisitionService(cache, sqlOptions);
-var sqlThread = new Thread(() => sqlAcquisition.Run(sqlShutdown.Token))
+SqlAcquisitionService? sqlAcquisition = null;
+Thread? sqlThread = null;
+
+if (sqlActivation.Active)
 {
-    IsBackground = true,
-    Name = "SQL polling"
-};
-sqlThread.Start();
+    sqlAcquisition = new SqlAcquisitionService(cache, sqlOptions);
+    sqlThread = new Thread(() => sqlAcquisition.Run(sqlShutdown.Token))
+    {
+        IsBackground = true,
+        Name = "SQL polling"
+    };
+    sqlThread.Start();
+}
 
 Log.Information("Address space listo: {Tags} tags", server.NodeManager?.TagCount ?? 0);
 
@@ -343,9 +374,15 @@ using var timer = new Timer(_ =>
         // el servicio de adquisicion, y Gateway.Ua no puede depender del host.
         if (server.NodeManager is { } nodeManager)
         {
+            // Una entrada por fuente activa: si la fuente SQL no arranco (B1),
+            // no hay status que reportar por ella y no entra al snapshot.
+            IReadOnlyList<SourceLinkStatus> sourceLinks = sqlAcquisition is null
+                ? [acquisition.GetStatus()]
+                : [acquisition.GetStatus(), sqlAcquisition.GetStatus()];
+
             var snapshot = GatewaySnapshot.Build(
                 cache,
-                [acquisition.GetStatus(), sqlAcquisition.GetStatus()],
+                sourceLinks,
                 nodeManager.GetServerStatus(),
                 startedUtc,
                 // La foto de auditoria se toma aca, en el mismo instante que el
@@ -443,7 +480,7 @@ await sqlShutdown.CancelAsync();
 // para cubrir un caso raro, y no hay nada que perder porque el driver es de
 // solo lectura y no deja escrituras a medio hacer.
 daThread.Join(TimeSpan.FromSeconds(5));
-sqlThread.Join(TimeSpan.FromSeconds(5));
+sqlThread?.Join(TimeSpan.FromSeconds(5));
 await application.StopAsync();
 Log.Information("Servidor detenido.");
 await Log.CloseAndFlushAsync();

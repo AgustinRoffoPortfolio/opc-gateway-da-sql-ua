@@ -63,12 +63,12 @@ public static class SqlOptionsValidator
         // esperado en una maquina nueva (V2-7), no un olvido de configuracion.
         if (string.IsNullOrEmpty(options.User))
         {
-            errors.Add("Sql:User esta vacio. Los valores reales van en el override local (user-secrets o variable de entorno Sql__User), no en appsettings.json.");
+            errors.Add("Sql:User esta vacio. Los valores reales van en el override local (appsettings.Local.json o variable de entorno Sql__User), no en appsettings.json.");
         }
 
         if (string.IsNullOrEmpty(options.Password))
         {
-            errors.Add("Sql:Password esta vacio. Los valores reales van en el override local (user-secrets o variable de entorno Sql__Password), no en appsettings.json.");
+            errors.Add("Sql:Password esta vacio. Los valores reales van en el override local (appsettings.Local.json o variable de entorno Sql__Password), no en appsettings.json.");
         }
 
         ValidateSeconds(

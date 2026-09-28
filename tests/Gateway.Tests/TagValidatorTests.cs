@@ -136,6 +136,31 @@ public class TagValidatorTests
         Assert.Equal(0.25, result.Tags[0].Deadband);
     }
 
+    // A partir de aca, tests de V2-25: red de seguridad para un DATA_TYPE que
+    // el node manager no sabe publicar (carga parcial en vez de gateway
+    // entero abajo).
+
+    [Theory]
+    [InlineData(TagDataType.Double)]
+    [InlineData(TagDataType.Boolean)]
+    [InlineData(TagDataType.Int32)]
+    [InlineData(TagDataType.String)]
+    [InlineData(TagDataType.Float)]
+    public void TiposDelEnum_SonPublicables(TagDataType tipo)
+    {
+        Assert.True(TagValidator.IsPublishableType(tipo));
+    }
+
+    // Ningun CSV real puede llegar a este valor: CsvTagLoader ya rechaza con
+    // Enum.IsDefined cualquier DATA_TYPE que no sea uno de los miembros del
+    // enum. Se fuerza con un cast fuera de rango para probar la red de
+    // seguridad sin esperar a que el enum crezca sin avisar al node manager.
+    [Fact]
+    public void TipoFueraDelEnum_NoEsPublicable()
+    {
+        Assert.False(TagValidator.IsPublishableType((TagDataType)99));
+    }
+
     // A partir de aca, tests de V2-5: SOURCE obligatorio y lectura por
     // cabecera en vez de por posicion.
 

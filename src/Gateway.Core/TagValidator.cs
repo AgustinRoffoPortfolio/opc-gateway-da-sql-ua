@@ -14,6 +14,29 @@ public static class TagValidator
     private static readonly TagDataType[] SqlDataTypesAceptados =
         { TagDataType.Float, TagDataType.Boolean, TagDataType.Int32 };
 
+    // V2-25: tipos que GatewayNodeManager.CreateVariable sabe convertir a un
+    // tipo de dato de OPC UA. Vive aca y no en Gateway.Ua porque el chequeo
+    // tiene que cortar la fila ANTES de llegar al node manager: ese switch no
+    // se toca para agregar validacion y su default tira una excepcion sin
+    // atrapar, que hoy tira abajo el arranque entero si algo la dispara.
+    // Mantener esta lista sincronizada a mano con ese switch es la parte
+    // fragil, pero el costo de desincronizarla es ahora "una fila queda fuera
+    // de servicio" y no "el gateway no arranca". Hoy coincide 1 a 1 con el
+    // enum entero: ningun DATA_TYPE real la dispara, es una red para el dia
+    // que el enum crezca sin que el switch se entere.
+    private static readonly TagDataType[] PublishableTypes =
+        { TagDataType.Double, TagDataType.Boolean, TagDataType.Int32, TagDataType.String, TagDataType.Float };
+
+    /// <summary>
+    /// Si <paramref name="dataType"/> es uno de los tipos que el gateway sabe
+    /// publicar como nodo UA hoy (V2-25). Publico para poder probarlo directo
+    /// con un valor fuera del enum (un cast como <c>(TagDataType)99</c>):
+    /// ningun DATA_TYPE de un CSV real llega a violarlo, porque
+    /// <see cref="CsvTagLoader"/> ya rechaza cualquier valor que
+    /// <see cref="Enum.IsDefined{TEnum}"/> no reconozca.
+    /// </summary>
+    public static bool IsPublishableType(TagDataType dataType) => PublishableTypes.Contains(dataType);
+
     public static TagLoadResult LoadAndValidate(string relativePath)
     {
         var path = ConfigPathResolver.Resolve(relativePath);
@@ -34,6 +57,13 @@ public static class TagValidator
             {
                 errors.Add(new TagLoadError(row.LineNumber, row.Tag.OpcUaName,
                     $"linea {row.LineNumber}: '{row.Tag.OpcUaName}' ya aparecio antes en el archivo, esta fila queda fuera de servicio."));
+                continue;
+            }
+
+            if (!IsPublishableType(row.Tag.DataType))
+            {
+                errors.Add(new TagLoadError(row.LineNumber, row.Tag.OpcUaName,
+                    $"linea {row.LineNumber}: '{row.Tag.OpcUaName}' declara DATA_TYPE '{row.Tag.DataType}', que el gateway no sabe publicar como nodo UA."));
                 continue;
             }
 

@@ -2,8 +2,9 @@ namespace Gateway.Sql;
 
 /// Configuracion de la fuente SQL, leida de appsettings.json (V2-6).
 /// Los parametros van sueltos y no como connection string: lo pide R6 y es lo
-/// que permite sacar del repositorio solo User y Password (V2-7) sin llevarse
-/// con ellos el host y la base, que no son secretos y conviene versionar.
+/// que permite sacar del repositorio solo User y Password (V2-7, V2-26) sin
+/// llevarse con ellos el host y la base, que no son secretos y conviene
+/// versionar.
 public class SqlOptions
 {
     /// Host y puerto del servidor SQL Server.
@@ -19,8 +20,8 @@ public class SqlOptions
     public string Table { get; set; } = "CURR_DATA";
 
     /// Credenciales de SQL Server (P8). Vacias a proposito en el JSON
-    /// versionado: los valores reales llegan por user-secrets o por variables
-    /// de entorno y pisan estas claves (V2-7).
+    /// versionado: los valores reales llegan por appsettings.Local.json o por
+    /// variables de entorno y pisan estas claves (V2-7, V2-26).
     public string User { get; set; } = "";
     public string Password { get; set; } = "";
 

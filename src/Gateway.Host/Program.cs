@@ -287,6 +287,15 @@ if (hasSqlTags && !sqlActivation.Active)
 else if (!hasSqlTags)
     Log.Information("No hay tags SOURCE=SQL en el CSV; la fuente SQL no se activa y Sql:* no se exige.");
 
+// Misma regla para DA (V2-29, simetrica a B1/V2-27 para SQL): sin tags de
+// origen OPC DA en el CSV, el driver no se crea. La maquina donde se instale
+// el gateway puede no tener servidor DA, y un driver reintentando en loop
+// contra algo que el CSV nunca pidio es puro ruido en el log.
+var hasDaTags = tagLoadResult.Tags.Any(t => t.Source == TagSource.OpcDa);
+
+if (!hasDaTags)
+    Log.Information("No hay tags de origen OPC DA en el CSV; la fuente DA no se activa.");
+
 // (el calculo de la ventana de antiguedad se movio abajo, antes de tagDefinitions)
 
 // Frontera entre los dos mundos: el driver DA la llena, el node manager la lee.
@@ -322,15 +331,24 @@ await application.StartAsync(server);
 // exige MTA, y una lectura DA lenta no tiene por que frenar la publicacion UA.
 // El apartment se fija aca de forma explicita en vez de heredarlo del hilo que
 // nos toque, que es como venia funcionando de rebote.
+// Solo se crea si hay tags DA (V2-29, misma logica que B1/V2-27 para SQL): sin
+// esto, el driver reintentaria para siempre contra un servidor que el CSV
+// nunca declaro.
 var daShutdown = new CancellationTokenSource();
-var acquisition = new DaAcquisitionService(cache, daOptions);
-var daThread = new Thread(() => acquisition.Run(daShutdown.Token))
+DaAcquisitionService? acquisition = null;
+Thread? daThread = null;
+
+if (hasDaTags)
 {
-    IsBackground = true,
-    Name = "OPC DA polling"
-};
-daThread.SetApartmentState(ApartmentState.MTA);
-daThread.Start();
+    acquisition = new DaAcquisitionService(cache, daOptions);
+    daThread = new Thread(() => acquisition.Run(daShutdown.Token))
+    {
+        IsBackground = true,
+        Name = "OPC DA polling"
+    };
+    daThread.SetApartmentState(ApartmentState.MTA);
+    daThread.Start();
+}
 
 // Hilo propio para SQL, separado del de DA y del timer de publicacion: es el
 // invariante 8, una consulta lenta o una base caida no pueden frenar a la otra
@@ -374,11 +392,12 @@ using var timer = new Timer(_ =>
         // el servicio de adquisicion, y Gateway.Ua no puede depender del host.
         if (server.NodeManager is { } nodeManager)
         {
-            // Una entrada por fuente activa: si la fuente SQL no arranco (B1),
-            // no hay status que reportar por ella y no entra al snapshot.
-            IReadOnlyList<SourceLinkStatus> sourceLinks = sqlAcquisition is null
-                ? [acquisition.GetStatus()]
-                : [acquisition.GetStatus(), sqlAcquisition.GetStatus()];
+            // Una entrada por fuente activa: si una fuente no arranco (B1/V2-27
+            // para SQL, V2-29 para DA), no hay status que reportar por ella y
+            // no entra al snapshot.
+            List<SourceLinkStatus> sourceLinks = [];
+            if (acquisition is not null) sourceLinks.Add(acquisition.GetStatus());
+            if (sqlAcquisition is not null) sourceLinks.Add(sqlAcquisition.GetStatus());
 
             var snapshot = GatewaySnapshot.Build(
                 cache,
@@ -479,7 +498,7 @@ await sqlShutdown.CancelAsync();
 // background. Se acepta: estirar el Join volveria lento cada apagado normal
 // para cubrir un caso raro, y no hay nada que perder porque el driver es de
 // solo lectura y no deja escrituras a medio hacer.
-daThread.Join(TimeSpan.FromSeconds(5));
+daThread?.Join(TimeSpan.FromSeconds(5));
 sqlThread?.Join(TimeSpan.FromSeconds(5));
 await application.StopAsync();
 Log.Information("Servidor detenido.");

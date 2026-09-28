@@ -612,3 +612,23 @@ No está decidido cómo se detecta ni si hace falta. Se evalúa en la Fase 5, do
 **No cierra qué debería ver un operador para una fuente inactiva por configuración, a diferencia de una fuente que nunca se declaró.** Hoy las dos se ven igual: ninguna sección en el diagnóstico. Distinguirlas —"no hay tags SQL" contra "hay tags SQL pero la configuración está mal"— solo queda en el log de arranque. Se deja así porque tocar qué muestra la página de diagnóstico está fuera del alcance de esta tanda.
 
 **Costo.** Un archivo nuevo (`SqlSourceActivation.cs`, con su record de resultado) y el `sqlAcquisition`/`sqlThread` de `Program.cs` pasan de no anulables a `SqlAcquisitionService?`/`Thread?`, con los `?.`/chequeos correspondientes en el snapshot y en el apagado.
+
+---
+
+### V2-29 — El driver DA solo arranca si el CSV declara tags DA
+
+**El problema.** `Program.cs` creaba `DaAcquisitionService` y arrancaba su hilo sin condición, sin importar si el CSV declaraba algún tag `SOURCE=OPC_DA`. En una instalación con tags exclusivamente SQL —el caso que V2-27 ya soporta del lado SQL— el driver DA igual se conectaba contra el ProgID configurado (`Matrikon.OPC.Simulation.1` en desarrollo), reintentando para siempre en una máquina que puede ni tener un servidor DA instalado.
+
+**Decisión.** Mismo criterio que V2-27, aplicado a DA: `hasDaTags = tagLoadResult.Tags.Any(t => t.Source == TagSource.OpcDa)` se calcula junto a `hasSqlTags`, antes de crear nada.
+
+- **Sin tags DA en el CSV:** no se crea `DaAcquisitionService` ni su hilo. Se loguea una línea Information, simétrica a la de SQL: "No hay tags de origen OPC DA en el CSV; la fuente DA no se activa."
+- **Con tags DA:** todo se comporta exactamente como antes — se crea el servicio, el hilo nace en MTA (exigencia de COM) y arranca de inmediato.
+- **Con cero tags de cualquier fuente:** las dos ramas caen en "no se activa" y el gateway arranca sin ningún driver de adquisición corriendo, solo el servidor UA, vacío. Un CSV sin filas es válido para el validador de tags, así que el host tiene que tolerar ese caso.
+
+**Por qué no hay, del lado DA, un equivalente a `SqlSourceActivation`/`SqlOptionsValidator`.** SQL necesita validar `Sql:*` (host, credenciales, identificadores) antes de intentar conectar porque una configuración con un identificador inválido no es un problema de red, es un error de tipeo que nunca se va a resolver solo reintentando (V2-27). DA no tiene ese escalón: el ProgID y el intervalo de `Da:*` no se validan hoy contra nada antes de conectar, así que la única pregunta que hace falta responder es si el CSV declaró tags DA, no si `Da:*` es válido.
+
+**Por qué simetría con SQL y no una regla nueva.** Mismo argumento que V2-27: un driver reintentando para siempre contra algo que el CSV nunca pidió es ruido para quien opera, no una señal de un problema real. La única razón por la que DA nacía siempre era que, antes de V2-5, todos los tags eran DA por definición; con la fuente SQL ya integrada (V2-24) esa suposición ya no vale para ningún lado.
+
+**Por qué no hace falta tocar `GatewaySnapshot`, el node manager ni la página de diagnóstico.** Igual que en V2-27: `Sources` es una lista de "una entrada por fuente activa, en el orden en que las pasó el host" y tanto `GatewaySnapshot.Build` como `GatewayNodeManager.PublishDiagnostics` recorren esa lista con `foreach`, identificando cada entrada por `Link.Source` y nunca por posición. `AddDiagnosticNodes` ya arma la rama de cada fuente solo `if (_cache.SourceTags(source).Any())`, y la página web (`diagnostics.html`) arma cada tarjeta a partir de `link.source`, nunca del índice del array. Sacar la entrada DA cuando no hay tags DA usa la misma dinámica que ya sostenía a SQL, no agrega una nueva.
+
+**Costo.** `acquisition`/`daThread` en `Program.cs` pasan de no anulables a `DaAcquisitionService?`/`Thread?`, con los chequeos correspondientes al armar `sourceLinks` en el timer y en el `Join` del apagado. `daShutdown` se sigue creando y cancelando siempre, aunque no haya hilo: cancelar un `CancellationTokenSource` sin nadie escuchando no hace nada, así que no hace falta un chequeo extra ahí.

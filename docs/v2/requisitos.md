@@ -2,7 +2,7 @@
 
 Especificación de la segunda fuente de datos de la v2 del gateway. Define qué se construye; el cómo se resuelve en `decisiones-v2.md`.
 
-Los IDs `R1`–`R7` identifican requisitos y `P1`–`P11` puntos de especificación aclarados durante el diseño. El resto de `docs/` los referencia por número.
+Los IDs `R1`–`R7` identifican requisitos y `P1`–`P13` puntos de especificación aclarados durante el diseño.El resto de `docs/` los referencia por número.
 
 ---
 
@@ -115,7 +115,11 @@ CREATE TABLE [dbo].[CURR_DATA](
 
 - **Motor (P8).** SQL Server 2019 o 2025, con autenticación por usuario y password de SQL Server. Edición Developer o superior.
 - **Despliegue (P10).** El desarrollo va contra una base simulada; el sistema tiene que poder probarse contra un servidor real en un ambiente de TEST. La adecuación entre ambos se resuelve por configuración, sin recompilar.
-- **Credenciales.** En esta etapa es aceptable tratar usuario y password como parámetros de configuración más. El tratamiento definitivo (cifrado de la configuración, gestor de secretos) queda fuera de alcance.
+- **Credenciales (P12).** En esta etapa es aceptable tratar usuario y password como parámetros de configuración más, y se confirmó para la instancia de prueba de concepto. Más adelante hace falta un guardado seguro de la password; el tratamiento definitivo (cifrado de la configuración, gestor de secretos) queda fuera de alcance.
+- **Zona horaria de `TS` (P11).** La aplicación de origen guarda `TS` en hora local, GMT-3. Si hace falta, la zona se parametriza en la configuración.
+- **Instancia (P12).** El gateway es una prueba de concepto temporal en el ambiente de TEST. La integración definitiva va a provenir de un servidor OPC UA que todavía no está disponible.
+- **Consumidor (P12).** El cliente OPC UA es un PI System que corre en otra máquina. En la prueba de concepto no hay restricciones de firewall entre ambas.
+- **Certificados del canal OPC UA (P12).** Se acepta la confianza en certificados autofirmados.
 
 ---
 
@@ -129,7 +133,7 @@ CREATE TABLE [dbo].[CURR_DATA](
 
 ## Puntos abiertos
 
-### P11. Nombres reales en un repositorio público
+### P13. Nombres reales en un repositorio público
 
 Pendiente de confirmación: si `SCADA_HST` y `CURR_DATA` pueden quedar expuestos al publicar, o si deben reemplazarse por nombres genéricos. Mientras el repositorio sea privado se usan tal cual.
 

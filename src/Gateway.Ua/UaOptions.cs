@@ -14,7 +14,11 @@ public class UaOptions
     public string TagsCsvPath { get; set; } = "config/tags.example.csv";
 
     public string PkiRoot { get; set; } = "pki";
-    public bool AutoAcceptUntrustedCertificates { get; set; } = true;
+    
+    /// Aceptar certificados de cliente no confiados. Default false: si la seccion
+    /// Ua llega incompleta (por ejemplo, en un paquete con un JSON editado a mano),
+    /// el servidor no queda en modo permisivo. appsettings.json ya lo fija en false.
+    public bool AutoAcceptUntrustedCertificates { get; set; } = false;
 
     /// Endpoint sin seguridad (None - None). Util para desarrollo y para el
     /// cliente de carga, pero es trafico sin firmar ni cifrar y sin validacion

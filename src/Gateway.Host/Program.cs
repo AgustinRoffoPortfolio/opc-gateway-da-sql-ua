@@ -198,8 +198,11 @@ if (options.AutoAcceptUntrustedCertificates)
 }
 else
 {
+    var trustedCertsPath = Path.Combine(pkiRoot, "trusted", "certs");
+    // El paquete no trae pki/: crear la carpeta para que el operador pueda mover ahi el certificado del cliente desde rejected\certs.
+    Directory.CreateDirectory(trustedCertsPath);
     Log.Information("Validacion de certificados activa. Clientes confiables en {Trusted}",
-        Path.Combine(pkiRoot, "trusted", "certs"));
+        trustedCertsPath);
 }
 
 if (options.EnableUnsecureEndpoint)

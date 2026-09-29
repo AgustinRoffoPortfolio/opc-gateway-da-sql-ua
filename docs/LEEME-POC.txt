@@ -1,0 +1,128 @@
+GATEWAY OPC DA -> UA (SQL) - POC PARA PI SYSTEM
+POC temporal en TEST. Publica por OPC UA los tags de
+SCADA_HST.dbo.CURR_DATA para que PI System los lea desde otra maquina.
+
+REQUISITOS
+
+- Windows. El ejecutable es x86.
+
+- NO hace falta instalar .NET. El runtime viaja adentro del paquete.
+
+- NO hace falta servidor OPC DA. Esta POC es solo SQL: el CSV que trae
+  el paquete no declara tags DA, asi que esa fuente no se activa.
+
+ORDEN CRITICO DE PUESTA EN MARCHA
+
+Seguir este orden exacto. NO ejecutar Gateway.Host.exe hasta el paso 4.
+
+1. Descomprimir el paquete en la maquina destino.
+
+2. Copiar appsettings.Local.example.json a appsettings.Local.json (al
+   lado del ejecutable) y completarlo:
+     - Sql:Host, Sql:Port y Sql:Database: datos del SQL Server de TEST.
+       Los placeholders (IP-O-NOMBRE-DEL-SQL-SERVER, puerto 0, nombre
+       de base) no son validos a proposito, para que no se pase por
+       alto completarlos.
+     - Sql:User y Sql:Password (credenciales reales de SQL Server).
+     - Ua:EndpointUrl: reemplazar NOMBRE-DE-ESTA-PC por el nombre de
+       red real de esta maquina.
+     - Sql:TimeZone: dejar "Argentina Standard Time" si el SQL Server
+       de TEST esta en GMT-3, o ajustar si no.
+     - Sql:TrustServerCertificate: ver seccion mas abajo.
+
+3. Editar config\poc-sql.example.csv con los TAG reales de la tabla
+   (los nombres que trae son del simulador de desarrollo, no existen
+   en TEST). Alternativa: apuntar Ua:TagsCsvPath a un CSV propio.
+
+   El primer segmento de TAG_NAME_OPC_UA (antes del primer punto) es
+   el nombre de la carpeta que aparece bajo "Gateway" en el arbol OPC
+   UA. NO usar ahi los nombres de las carpetas de diagnostico del
+   propio gateway (Status, Counters, Performance, OpcDa, Sql): un tag
+   que empezara, por ejemplo, con "Sql." chocaria con esa carpeta.
+
+4. RECIEN AHORA, primer arranque: ejecutar Gateway.Host.exe
+
+POR QUE EL ORDEN IMPORTA: el certificado del servidor se emite en el
+PRIMER arranque, y el nombre que lleva adentro es el de Ua:EndpointUrl
+en ESE momento. El gateway no lo vuelve a emitir solo si la URL cambia
+despues. Arrancar antes de completar el nombre de la maquina deja un
+certificado inservible.
+
+SI YA ARRANCO CON OTRO NOMBRE
+
+Si PI System da error BadCertificateHostNameInvalid al conectar:
+
+1. Cerrar el gateway.
+2. Borrar la carpeta pki\own (junto al ejecutable).
+3. Arrancar de nuevo. Emite un certificado nuevo con el nombre que
+   este puesto en Ua:EndpointUrl en ese momento.
+4. Volver a confiar el certificado del servidor del lado de PI (el
+   certificado viejo confiado ya no sirve, es otro thumbprint).
+
+FIREWALL DE WINDOWS
+
+En el primer arranque aparece el cartel de permiso de red. Hay que
+tocar PERMITIR (redes privadas o de dominio, segun corresponda): esta
+POC expone el endpoint UA a la red, a diferencia del paquete de
+desarrollo que solo escucha en loopback.
+
+Si se toco CANCELAR por error: PI no va a poder conectar y el gateway
+no muestra ningun error en consola, porque desde su lado el puerto
+esta escuchando normalmente. Para destrabarlo:
+
+  Panel de control -> Firewall de Windows Defender ->
+  Permitir una aplicacion a traves de Firewall de Windows ->
+  buscar Gateway.Host -> habilitar la red que corresponda.
+
+COMO SE CONECTA PI SYSTEM
+
+PI se conecta POR NOMBRE de esta maquina, NUNCA por IP ni por
+localhost: el certificado del servidor solo es valido para el nombre
+con el que se emitio (ver ORDEN CRITICO). Seguridad: Basic256Sha256,
+Sign & Encrypt. Usuario: Anonymous.
+
+Confianza mutua, hay que resolverla de los dos lados:
+
+- El gateway deposita el certificado de PI en pki\rejected\certs la
+  primera vez que PI intenta conectar. Moverlo a pki\trusted\certs
+  para que el gateway confie en PI (esa carpeta la crea el gateway
+  solo, al arrancar; no hace falta crearla a mano).
+- PI tiene que confiar el certificado del gateway del lado de PI
+  (aceptarlo cuando lo pida, o importarlo a mano segun como conecte
+  PI System a servidores OPC UA).
+
+CONFIGURACION
+
+appsettings.Local.json, al lado del ejecutable (no se versiona, no
+compartir el archivo: para esta POC la password de SQL Server queda
+ahi en texto plano, es un riesgo aceptado solo para este uso puntual y
+temporal).
+
+  Sql:TrustServerCertificate
+      true si el SQL Server de TEST usa certificado autofirmado.
+      false si tiene un certificado valido.
+      Consultar con quien administra ese SQL Server si hay duda.
+
+COMO SABER QUE ANDA
+
+En consola, en este orden:
+
+    Tags cargados: N validos, 0 con error
+    No hay tags de origen OPC DA en el CSV; la fuente DA no se activa.
+    Driver SQL conectado a <host>, leyendo cada <N> s
+    Servidor OPC UA escuchando en opc.tcp://NOMBRE-DE-ESTA-PC:4840/...
+    EXPUESTO A LA RED
+
+El "N validos" tiene que coincidir con la cantidad de filas del CSV
+(config\poc-sql.example.csv o el que se haya editado). Si no coincide,
+alguna fila quedo fuera por un error de formato: el motivo sale con
+numero de linea en el mismo log.
+
+Pagina de diagnostico: http://localhost:8080 (solo se ve desde esta
+maquina, no queda expuesta a la red).
+
+ALCANCE
+
+Solo lectura. No historiza. Es una prueba de concepto temporal para
+que PI System valide la lectura via OPC UA, no un despliegue
+definitivo.

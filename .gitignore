@@ -55,3 +55,6 @@ scratch/
 
 # Deuda de trabajo, no es entregable
 docs/pendientes.md
+
+# Salida de tools/Build-PocPackage.ps1
+dist/

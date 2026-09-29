@@ -161,6 +161,9 @@ Sobre la carpeta publicada:
 - **Agregar** el `.opcsim.xml` del escenario de demo, el CSV de aliases y un
   `LEEME.txt` con requisitos, puesta en marcha y qué se debería ver.
 
+El paquete de la POC SQL -> UA para PI System (V2-28) se arma con
+`tools/Build-PocPackage.ps1`, que automatiza estos mismos pasos para ese caso.
+
 `config/demo-10.opcsim.xml` está versionado aunque sea un archivo generado por
 el configurador de Matrikon: son 2 KB y evita tener que abrirlo cada vez que se
 arma un paquete. Se regenera importando `config/aliases.example.csv` con

@@ -1,0 +1,15 @@
+# Filas SQL de ejemplo para armar el CSV de la POC. Mismo formato que
+# config/demo-mixto.tags.csv: separador ';', comentarios con '#' al
+# inicio de linea, decimales con PUNTO, TAG_NAME_OPC_UA unico.
+# SOURCE_TAG usa los nombres del simulador (tools/SqlSimulator): antes de
+# arrancar contra la base de TEST hay que reemplazarlos por los TAG
+# reales de SCADA_HST.dbo.CURR_DATA.
+TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS;DEADBAND;ACCESS_LEVEL;DESCRIPTION;ENABLED
+TAGS.PLANTA_01.MEDICION.PRESION_ENTRADA;SQL;PLANTA_01_MEDICION_PRESION_ENTRADA;Float;1;0;bar;0;0;Read;Presion de entrada, grupo RAPIDO;True
+TAGS.PLANTA_01.MEDICION.PRESION_SALIDA;SQL;PLANTA_01_MEDICION_PRESION_SALIDA;Float;1;0;bar;0;0;Read;Presion de salida, forzada por operador (Q=216);True
+TAGS.PLANTA_01.MEDICION.TEMPERATURA_SALIDA;SQL;PLANTA_01_MEDICION_TEMPERATURA_SALIDA;Float;1;0;degC;0;0;Read;Temperatura de salida, grupo MEDIO;True
+TAGS.PLANTA_01.MEDICION.CAUDAL_TOTALIZADO;SQL;PLANTA_01_MEDICION_CAUDAL_TOTALIZADO;Float;0.001;0;m3;0;0;Read;Caudal totalizado, con multiplicador;True
+TAGS.PLANTA_02.MEDICION.NIVEL_TANQUE;SQL;PLANTA_02_MEDICION_NIVEL_TANQUE;Float;1;0;%;0;0;Read;Nivel de tanque, grupo MEDIO;True
+TAGS.PLANTA_02.ESTADO.BOMBA_01;SQL;PLANTA_02_ESTADO_BOMBA_01;Boolean;1;0;;0;0;Read;Bomba 01, booleano que llega como 1.0 (V2-15);True
+TAGS.PLANTA_02.MEDICION.HORAS_MARCHA;SQL;PLANTA_02_MEDICION_HORAS_MARCHA;Float;1;0;h;0;0;Read;Horas de marcha, grupo LENTO;True
+TAGS.PLANTA_02.MEDICION.DENSIDAD;SQL;PLANTA_02_MEDICION_DENSIDAD;Float;1;0;g/cm3;0;0;Read;Densidad, calidad incierta (Q=64);True

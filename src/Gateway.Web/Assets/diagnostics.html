@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gateway OPC DA-UA — Diagnóstico</title>
+<title>Gateway OPC DA + SQL → UA — Diagnóstico</title>
 <style>
   :root { --ok:#2e9e5b; --warn:#c98a12; --bad:#c0392b; --idle:#7a7a7a; --line:#dcdcdc; }
   * { box-sizing: border-box; }
@@ -46,12 +46,11 @@
   .sub { color:#777; font-size:12px; }
   .foot { margin-top:12px; color:#666; font-size:13px; }
 </style>
-</style>
 </head>
 <body>
 
 <header>
-  <h1>Gateway OPC DA → UA</h1>
+  <h1>Gateway OPC DA + SQL → UA</h1>
   <span class="stamp" id="stamp">—</span>
 </header>
 
@@ -93,13 +92,13 @@
 <section id="view-det" class="hidden">
   <div class="card">
     <div class="controls">
-      <input type="search" id="search" placeholder="Filtrar por nombre UA o ItemID DA…">
+      <input type="search" id="search" placeholder="Buscar tag…">
       <label><input type="checkbox" id="onlyDegraded" checked> Solo degradados</label>
     </div>
     <table>
       <thead><tr>
         <th>Tag UA</th><th>Fuente</th><th>Tag de origen</th><th>Valor</th><th>Calidad</th>
-        <th>SourceTimestamp (DA)</th><th>Última lectura (gateway)</th><th>Antigüedad</th>
+        <th>SourceTimestamp</th><th>Última lectura (gateway)</th><th>Antigüedad</th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -184,13 +183,31 @@ function sourceCard(s) {
       ["Promedio", l.avgCycleMs.toFixed(1) + " ms"],
       ["Máximo", l.maxCycleMs.toFixed(1) + " ms"],
       ["Intervalo", l.configuredIntervalMs + " ms"],
-      ["Reconexiones", l.connections]
+      // Disconnections y no Connections: Connections cuenta tambien la
+      // primera conexion, asi que arrancaba en 1 con el vinculo recien
+      // levantado y se leia como una caida que no hubo.
+      ["Caídas", l.disconnections]
     ])}</div>
   </div>`;
 }
 
+// Una fuente con tags declarados que no arranco (B3). Sin vinculo ni
+// contadores: solo el aviso, para que no desaparezca de la pantalla. Una
+// fuente sin tags declarados no llega aca: no se usa y no se muestra.
+function inactiveCard(i) {
+  return `<div class="card">
+    <h2>${esc(SOURCE_TITLE[i.source] ?? i.source)}</h2>
+    <div class="light">
+      <span class="dot bad"></span>
+      <span class="state">Inactiva</span>
+    </div>
+    <p class="verdict">${esc(i.reason)}</p>
+  </div>`;
+}
+
 function paint(s) {
-  document.getElementById("sources").innerHTML = s.sources.map(sourceCard).join("");
+  document.getElementById("sources").innerHTML =
+    s.sources.map(sourceCard).join("") + (s.inactiveSources ?? []).map(inactiveCard).join("");
   document.getElementById("stamp").textContent =
     `foto ${new Date(s.takenUtc).toLocaleTimeString("es-AR", { hour12: false })} · en pie ${Math.floor(s.status.uptimeSeconds / 60)} min`;
 

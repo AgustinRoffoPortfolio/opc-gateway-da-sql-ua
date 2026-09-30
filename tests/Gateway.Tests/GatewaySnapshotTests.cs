@@ -165,4 +165,30 @@ public class GatewaySnapshotTests
         Assert.Equal(0, snapshot.Counters.SilentTotal);
         Assert.Equal(Diagnosis.Healthy, Diag(snapshot));
     }
+
+    /// B3: sin fuentes inactivas, la foto sale igual que antes de existir el campo.
+    [Fact]
+    public void SinFuentesInactivas_QuedaVacioYSourcesNoCambia()
+    {
+        var snapshot = Snap(CacheWith(3));
+
+        Assert.Empty(snapshot.InactiveSources);
+        var source = Assert.Single(snapshot.Sources);
+        Assert.Equal(TagSource.OpcDa, source.Link.Source);
+    }
+
+    /// B3: la fuente inactiva viaja tal cual y no se mezcla con las activas,
+    /// que son las unicas con vinculo y contadores.
+    [Fact]
+    public void ConFuenteInactiva_LlegaTalCualYNoEntraEnSources()
+    {
+        var inactive = new InactiveSource(TagSource.Sql, "configuracion invalida");
+
+        var snapshot = GatewaySnapshot.Build(
+            CacheWith(3), [Link()], Ua(), T1, UaAuditSnapshot.Empty, [inactive]);
+
+        Assert.Equal(inactive, Assert.Single(snapshot.InactiveSources));
+        var source = Assert.Single(snapshot.Sources);
+        Assert.Equal(TagSource.OpcDa, source.Link.Source);
+    }
 }

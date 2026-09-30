@@ -290,6 +290,15 @@ if (hasSqlTags && !sqlActivation.Active)
 else if (!hasSqlTags)
     Log.Information("No hay tags SOURCE=SQL en el CSV; la fuente SQL no se activa y Sql:* no se exige.");
 
+// Lo que la pagina necesita para distinguir "inactiva por configuracion" de
+// "sin tags" (B3): las dos causas dejan sqlAcquisition en null. Solo entra la
+// primera; una fuente sin tags no se usa y no se muestra. Es texto de la
+// pagina, no del log, y por eso lleva tildes.
+List<InactiveSource> inactiveSources = [];
+if (hasSqlTags && !sqlActivation.Active)
+    inactiveSources.Add(new InactiveSource(TagSource.Sql,
+        "Configuración inválida en Sql:*. Los tags SQL no se actualizan; el motivo está en el log de arranque."));
+
 // Misma regla para DA (V2-29, simetrica a B1/V2-27 para SQL): sin tags de
 // origen OPC DA en el CSV, el driver no se crea. La maquina donde se instale
 // el gateway puede no tener servidor DA, y un driver reintentando en loop
@@ -397,7 +406,7 @@ using var timer = new Timer(_ =>
         {
             // Una entrada por fuente activa: si una fuente no arranco (B1/V2-27
             // para SQL, V2-29 para DA), no hay status que reportar por ella y
-            // no entra al snapshot.
+            // no entra aca. La inactiva por configuracion va en inactiveSources.
             List<SourceLinkStatus> sourceLinks = [];
             if (acquisition is not null) sourceLinks.Add(acquisition.GetStatus());
             if (sqlAcquisition is not null) sourceLinks.Add(sqlAcquisition.GetStatus());
@@ -410,7 +419,8 @@ using var timer = new Timer(_ =>
                 // La foto de auditoria se toma aca, en el mismo instante que el
                 // resto: si se leyera al servirla, la pagina podria mostrar un
                 // rechazo que los nodos UA todavia no vieron.
-                audit.Snapshot());
+                audit.Snapshot(),
+                inactiveSources);
 
             // Un unico Build por ciclo alimenta las dos vistas: los nodos UA y
             // la pagina sirven el mismo objeto, no dos fotos parecidas.

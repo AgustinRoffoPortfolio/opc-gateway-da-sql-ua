@@ -123,6 +123,17 @@ public sealed record SourceSnapshot(
     Diagnosis Diagnosis);
 
 /// <summary>
+/// Una fuente con tags declarados en el CSV que no arranco. No tiene vinculo
+/// ni contadores que reportar, pero si un motivo: sin esta entrada la pagina
+/// la dibujaria igual que una fuente sin tags, que es no dibujarla, y el
+/// operador no se enteraria de que hay tags que nunca se van a actualizar.
+/// </summary>
+/// <param name="Reason">Motivo ya redactado para mostrar tal cual.</param>
+public sealed record InactiveSource(
+    TagSource Source,
+    string Reason);
+
+/// <summary>
 /// Foto del gateway en un instante. Unica fuente para los nodos UA de
 /// diagnostico y para la pagina web: si cada vista armara sus propios numeros,
 /// terminarian discrepando justo cuando hay un problema.
@@ -143,7 +154,13 @@ public sealed record GatewaySnapshot(
     /// porque las dos vistas tienen que ver los mismos numeros: un contador de
     /// rechazos que discrepa entre la pagina y los nodos UA es peor que no tenerlo.
     /// </param>
-    UaAuditSnapshot Audit)
+    UaAuditSnapshot Audit,
+    /// <param name="InactiveSources">
+    /// Fuentes con tags declarados que no arrancaron (B3). Una fuente sin tags
+    /// declarados no esta ni aca ni en Sources: no se usa. El node manager no
+    /// la lee; va en la foto para que la pagina la muestre sin un canal aparte.
+    /// </param>
+    IReadOnlyList<InactiveSource> InactiveSources)
 {
     /// Por debajo de esta fraccion de tags mudos no se afirma una causa global.
     private const double PartialDegradationThreshold = 0.05;
@@ -165,7 +182,8 @@ public sealed record GatewaySnapshot(
         IReadOnlyList<SourceLinkStatus> links,
         UaServerStatus ua,
         DateTime startedUtc,
-        UaAuditSnapshot audit)
+        UaAuditSnapshot audit,
+        IReadOnlyList<InactiveSource>? inactiveSources = null)
     {
         var now = DateTime.UtcNow;
 
@@ -202,7 +220,8 @@ public sealed record GatewaySnapshot(
             System.Diagnostics.Process.GetCurrentProcess().WorkingSet64 / 1024d / 1024d);
 
         return new GatewaySnapshot(
-            now, status, sources, total.ToCounters(), performance, audit);
+            now, status, sources, total.ToCounters(), performance, audit,
+            inactiveSources ?? []);
     }
 
     /// <summary>Acumulador mutable: evita recorrer la cache una vez por fuente.</summary>

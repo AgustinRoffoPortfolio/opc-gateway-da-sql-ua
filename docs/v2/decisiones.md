@@ -685,4 +685,53 @@ muestra `Disconnections` como "Caídas" en lugar de `Connections`.
 tiene que corregir. El dato viaja en el snapshot y no en un endpoint aparte, para
 mantener una sola foto para la página y los nodos UA; entra como parámetro opcional,
 y el node manager no lo lee. `Connections` cuenta la primera conexión, así que
-"Reconexiones 1" al arrancar sugería una caída que no existió (`f64eda3`).
+"Reconexiones 1" al arrancar sugería una caída que no existió (`f64eda3`).  
+
+---
+
+### V2-32 — Con el vínculo SQL caído, los tags SQL bajan a `Uncertain`
+
+**Decisión.** Cada vez que un intento del driver SQL falla (el `catch` de
+`SqlAcquisitionService.Run`: caída de `ReadRows`, del mapeo o de un reintento de
+`Connect`), la cache marca todos los tags SQL: los que están en `Good`, con o sin
+límite y también `GoodLocalOverride`, pasan a `Uncertain` *last usable value*,
+conservando valor, `SourceTimestamp` y `LastUpdateUtc`. Los que ya estaban en
+`Uncertain` o `Bad` (por `Q`, por `NULL`, por ausentes o esperando el primer dato) no
+cambian: la marca solo degrada, nunca mejora. El primer ciclo exitoso después de
+reconectar pisa todo con la calidad que traiga `Q`, como siempre. Los nodos de
+diagnóstico de `Sql` siguen en `Good` (principio 4).
+
+**Por qué.** Es el principio 3 aplicado a un hecho que el gateway conoce: perdió la
+base y nadie está refrescando esos valores. Publicarlos en `Good` le decía al cliente
+"dato bueno" sin serlo; `Uncertain` conserva el valor (que `Bad` borraría) y avisa la
+duda. No es una inferencia por antigüedad, así que no contradice V2-11 ni V2-23: la
+señal es la falla del vínculo, no el tiempo. El `SourceTimestamp` no se toca
+(principio 2): sigue diciendo cuándo se midió. `LastUpdateUtc` tampoco, porque la marca
+no es una muestra.
+
+**Por qué en cada intento fallido y no una vez por caída.** La marca es idempotente:
+después de la primera no queda ningún `Good` en SQL y nadie más escribe esos tags, así
+que repetirla es inocuo. Condicionarla al flag que decide el aviso "Se corto el vinculo"
+la haría fallar en una segunda caída, porque ese flag no se reinicia al reconectar
+(bug preexistente, compartido con DA, fuera de esta decisión).
+
+**Por qué en el momento de la detección.** La detección ya existe y la marca se hace ahí
+mismo. El costo es la demora: la duda se publica recién al detectar la caída, hasta
+40 s después del corte (polling 30 + timeout 10, medido ~32 s en la Fase 5). Se acepta:
+bajar ese tiempo exige un polling más corto, que choca con R4.
+
+**Asimetría con DA.** DA llega al mismo estado (`Uncertain` *last usable value*) por
+otro camino: la degradación por antigüedad al leer (V2-11), sin marcar nada. SQL no
+puede usar ese camino porque su antigüedad está desactivada (V2-23), así que
+`Gateway.Core` suma una operación nueva de la cache para marcar una fuente caída.
+
+**La fuente inactiva por config (B10).** Si hay tags SQL pero la config no pasó la
+validación, la carpeta `Sql` de diagnóstico en UA publica una vez al arrancar
+`LinkState = Disconnected` y `LastError = "Configuracion invalida"`, en `Good`
+(principio 4), con los campos que ya existen y sin agregar un valor al enum. Los demás
+nodos de esa rama (contadores, tiempos) quedan sin valor: publicar 0 o "nunca"
+inventaría datos de una fuente que no corrió.
+
+**Lo que no cubre.** La aplicación de origen muerta con la base viva (caso b de B9,
+pregunta P14), y un ciclo colgado sin excepción, que no marca nada hasta que vence
+`CommandTimeout`.

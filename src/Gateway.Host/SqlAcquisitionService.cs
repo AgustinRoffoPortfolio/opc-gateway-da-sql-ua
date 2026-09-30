@@ -25,6 +25,9 @@ public sealed class SqlAcquisitionService
     private readonly SqlOptions _options;
     private readonly SqlTagMapper _mapper;
 
+    // Solo lo toca el hilo de polling, asi que no necesita sincronizacion.
+    private readonly SqlWarningTracker _warnings;
+
     private long _readCycles;
     private long _readFailures;
     private long _connections;
@@ -50,6 +53,10 @@ public sealed class SqlAcquisitionService
         // Se arma una vez y no por ciclo: resuelve la zona horaria, que es una
         // busqueda en la tabla del sistema.
         _mapper = new SqlTagMapper(options);
+        // Tambien una sola vez, y no por sesion: lo que ya se aviso tiene que
+        // sobrevivir a la reconexion (B4.3).
+        _warnings = new SqlWarningTracker(
+            cache.SourceTags(TagSource.Sql), TagKeyComparer.ComparerFor(TagSource.Sql));
     }
 
     public SourceLinkStatus GetStatus()
@@ -190,7 +197,6 @@ public sealed class SqlAcquisitionService
         _connected = true;
         _reconnectAttempts = 0;
         _lastError = null;
-        _loggedMissing.Clear();   // "una vez por sesion" de V2-21
         Interlocked.Increment(ref _connections);
 
         Log.Information("Driver SQL conectado a {Host}:{Puerto}, consultando cada {Segundos} s",
@@ -203,6 +209,7 @@ public sealed class SqlAcquisitionService
             var cycleWatch = Stopwatch.StartNew();
 
             SqlMappingResult result;
+            IReadOnlyCollection<string> missing;
             try
             {
                 // El mapeo entra en la medicion del ciclo a proposito: con 10.000
@@ -210,7 +217,7 @@ public sealed class SqlAcquisitionService
                 // gateway en tener el dato disponible, no cuanto tarda la base.
                 result = _mapper.Map(source.ReadRows());
                 _cache.Update(TagSource.Sql, result.Samples);
-                PublishMissingRows(result);
+                missing = PublishMissingRows(result);
             }
             finally
             {
@@ -220,7 +227,7 @@ public sealed class SqlAcquisitionService
             RecordCycle(cycleWatch.Elapsed);
             Interlocked.Exchange(ref _lastCacheStampTicks, DateTime.UtcNow.Ticks);
 
-            LogAnomalies(result);
+            LogWarnings(result, missing);
 
             token.WaitHandle.WaitOne(TimeSpan.FromSeconds(_options.PollingIntervalSeconds));
         }
@@ -239,61 +246,48 @@ public sealed class SqlAcquisitionService
     /// alcanza para concluir "no esta": no hace falta el paso intermedio por
     /// NotConnected que si necesita DA en el primer intento.
     /// </remarks>
-    private void PublishMissingRows(SqlMappingResult result)
+    private IReadOnlyCollection<string> PublishMissingRows(SqlMappingResult result)
     {
         var missing = _cache.MissingTags(TagSource.Sql, result.Samples);
 
         if (missing.Count == 0)
-            return;
+            return missing;
 
         _cache.Update(TagSource.Sql, missing.ToDictionary(
             tag => tag,
             _ => TagSample.NoData(TagQuality.RowMissing)));
 
-        // Una vez por sesion y no por ciclo: a 20 s de polling, avisar siempre
-        // inunda el log. Una reconexion vuelve a avisar, que es correcto.
-        foreach (var tag in missing.Where(_loggedMissing.Add))
-            Log.Warning("El tag {Tag} esta declarado con origen SQL pero la consulta no lo trajo: revisar el CSV o la tabla", tag);
+        // El aviso no va aca: lo decide el tracker, que avisa cuando cambia el
+        // conjunto y no por ciclo ni por sesion (B4.3).
+        return missing;
     }
-
-    private readonly HashSet<string> _loggedMissing = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Loguea los contadores del mapeo cuando cambian respecto del ciclo
-    /// anterior.
+    /// Loguea los avisos de tags ausentes y de filas anomalas que decida el
+    /// tracker.
     /// </summary>
     /// <remarks>
-    /// "Una sola vez" de V2-18 y V2-19 se cumple asi: el estado entre ciclos
-    /// vive aca, que es lo que el mapper explicitamente no hace. Se avisa
-    /// cuando la cuenta cambia y no en cada ciclo, porque 10.000 filas con dos
-    /// nulos estables serian dos lineas por minuto para siempre.
+    /// "Una sola vez" de V2-18, V2-19 y V2-21 se cumple en el tracker, que es
+    /// lo que el mapper explicitamente no hace. Las anomalias se filtran a los
+    /// tags declarados (B6.5): los totales de la tabla entera quedan en Debug,
+    /// porque un NULL en un tag que el CSV no pide no afecta a ningun cliente.
     /// </remarks>
-    private void LogAnomalies(SqlMappingResult result)
+    private void LogWarnings(SqlMappingResult result, IReadOnlyCollection<string> missing)
     {
-        var fingerprint = (result.NullValueCount, result.NullQualityCount,
-            result.UnknownSubstatusCount, result.InvalidTimestampCount);
-
-        if (fingerprint == _lastAnomalies) return;
-        _lastAnomalies = fingerprint;
-
-        if (fingerprint == default)
-        {
-            // Va el conteo y no solo "sin anomalias": con cero filas los cuatro
-            // contadores tambien dan cero, y una tabla vacia se leeria igual que
-            // una tabla sana. Paso de verdad al probar el paso 5.
-            Log.Information("Ciclo SQL sin filas anomalas sobre {Filas} filas", result.Samples.Count);
-            return;
-        }
-
-        Log.Warning(
-            "Filas anomalas en el ciclo SQL: {Nulos} sin valor, {SinCalidad} sin calidad, "
+        Log.Debug(
+            "Ciclo SQL, tabla entera: {Filas} filas, {Nulos} sin valor, {SinCalidad} sin calidad, "
             + "{Desconocidas} con substatus desconocido, {Invalidas} con timestamp inexistente",
-            result.NullValueCount, result.NullQualityCount,
+            result.Samples.Count, result.NullValueCount, result.NullQualityCount,
             result.UnknownSubstatusCount, result.InvalidTimestampCount);
-    }
 
-    // Solo lo toca el hilo de polling, asi que no necesita sincronizacion.
-    private (int, int, int, int) _lastAnomalies = (-1, -1, -1, -1);
+        foreach (var warning in _warnings.Evaluate(missing, result.Anomalies, result.Samples.Count))
+        {
+            if (warning.Level == SqlWarningLevel.Warning)
+                Log.Warning("{Aviso}", warning.Message);
+            else
+                Log.Information("{Aviso}", warning.Message);
+        }
+    }
 
     private void RecordCycle(TimeSpan elapsed)
     {

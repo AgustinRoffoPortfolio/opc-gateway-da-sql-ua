@@ -151,4 +151,37 @@ public class SqlTagMapperTests
         Assert.Single(result.Samples);
         Assert.Equal(2.0f, result.Samples["TIC101.PV"].Value);
     }
+
+    [Fact]
+    public void Anomalias_SoloTraenLasFilasAnomalasConSusFlags()
+    {
+        // B6.5: el host filtra el aviso a los tags declarados, y para eso
+        // necesita saber que tag trajo que anomalia, no solo cuantas hubo.
+        var result = Mapper().Map([
+            Row(tag: "SANO"),
+            Row(tag: "DOBLE", v: null, q: null),
+            Row(tag: "RARO", q: 196)]);
+
+        Assert.Equal(2, result.Anomalies.Count);
+        Assert.Equal(SqlRowAnomaly.NullValue | SqlRowAnomaly.NullQuality, result.Anomalies["doble"]);
+        Assert.Equal(SqlRowAnomaly.UnknownSubstatus, result.Anomalies["RARO"]);
+        Assert.False(result.Anomalies.ContainsKey("SANO"));
+    }
+
+    [Fact]
+    public void Anomalias_TimestampInexistenteQuedaMarcado()
+    {
+        // 2026-03-08 02:30 no existe en el Pacifico: el reloj salta de 2 a 3.
+        var result = Mapper(ZonaPacifico).Map([Row(ts: new DateTime(2026, 3, 8, 2, 30, 0))]);
+
+        Assert.Equal(SqlRowAnomaly.InvalidTimestamp, result.Anomalies["TIC101.PV"]);
+    }
+
+    [Fact]
+    public void Anomalias_DuplicadoSanoNoArrastraLaAnomaliaDelAnterior()
+    {
+        var result = Mapper().Map([Row(tag: "TIC101.PV", v: null), Row(tag: "tic101.pv", v: 2.0f)]);
+
+        Assert.Empty(result.Anomalies);
+    }
 }

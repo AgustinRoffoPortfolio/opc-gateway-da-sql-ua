@@ -50,10 +50,12 @@ public sealed class SqlTagSource : IDisposable
 
     /// Ejecuta la consulta y devuelve las filas crudas, sin interpretar.
     ///
-    /// Reparto de errores, copiado de OpcDaTagSource.ReadAll: un problema de
-    /// conexion o de consulta se deja propagar, para que el host aplique la
-    /// politica de reconexion de R5. Una fila rota se saltea y la lectura
-    /// sigue, porque una fila no puede tirar a las otras diez mil.
+    /// Reparto de errores: un problema de conexion o de consulta se deja
+    /// propagar, para que el host aplique la politica de reconexion de R5.
+    /// Lo unico que se saltea por fila es un TAG en NULL o en blanco. No hay
+    /// captura por fila: un TS en NULL o un tipo inesperado en TAG (GetString),
+    /// TS, V o Q hace tirar al reader, la excepcion propaga, se pierde el ciclo
+    /// entero y el host reconecta.
     public IReadOnlyList<SqlTagRow> ReadRows()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

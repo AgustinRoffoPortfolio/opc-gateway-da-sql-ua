@@ -9,12 +9,37 @@ namespace Gateway.Sql;
 /// ciclo y una lista de strings seria basura por ciclo para algo que el host va
 /// a loguear agregado igual. El "una sola vez" que piden V2-18 y V2-19 necesita
 /// estado entre ciclos, y eso vive en el host, no aca.
+///
+/// Anomalies es la excepcion a "contadores y no listas": el aviso del host
+/// tiene que filtrar a los tags declarados en el CSV (B6.5) y los contadores
+/// son de la tabla entera. Lleva solo los tags anomalos. Normalmente son pocos,
+/// pero en el peor caso (toda la tabla anomala) son tantas entradas como
+/// filas: un diccionario de 10.000 entradas cada decenas de segundos es
+/// aceptable a este ritmo de polling.
+///
+/// Anomalies es por tag, no por fila. Con un TAG duplicado la ultima fila pisa
+/// a la anterior, igual que en Samples, y la suma de flags puede no coincidir
+/// con los contadores, que cuentan filas. En la tabla real no puede pasar:
+/// TAG es clave primaria (P1).
 public sealed record SqlMappingResult(
     IReadOnlyDictionary<string, TagSample> Samples,
     int NullValueCount,
     int NullQualityCount,
     int UnknownSubstatusCount,
-    int InvalidTimestampCount);
+    int InvalidTimestampCount,
+    IReadOnlyDictionary<string, SqlRowAnomaly> Anomalies);
+
+/// Que salio raro en una fila. Flags porque una misma fila puede traer V y Q
+/// en NULL a la vez.
+[Flags]
+public enum SqlRowAnomaly
+{
+    None = 0,
+    NullValue = 1,
+    NullQuality = 2,
+    UnknownSubstatus = 4,
+    InvalidTimestamp = 8
+}
 
 /// Convierte filas crudas de CURR_DATA en muestras del gateway.
 ///
@@ -48,7 +73,7 @@ public sealed class SqlTagMapper
         // nombre. Si igual llegaran dos, quedarse con una es lo correcto; con
         // el comparador por defecto entrarian las dos y una pisaria a la otra
         // recien en la cache, mas lejos del origen. Es el mismo criterio que
-        // El mismo criterio que usan las definiciones y el cruce de ausentes
+        // usan las definiciones y el cruce de ausentes
         // (V2-17): un solo lugar decide como se comparan los nombres SQL.
         var samples = new Dictionary<string, TagSample>(rows.Count, TagKeyComparer.ComparerFor(TagSource.Sql));
 
@@ -56,11 +81,28 @@ public sealed class SqlTagMapper
         var nullQualities = 0;
         var unknownSubstatuses = 0;
         var invalidTimestamps = 0;
+        var anomalies = new Dictionary<string, SqlRowAnomaly>(TagKeyComparer.ComparerFor(TagSource.Sql));
 
         foreach (var row in rows)
         {
+            // Los flags de la fila salen de comparar los contadores antes y
+            // despues, asi los helpers siguen contando sin saber de flags.
+            var (nullQualitiesBefore, unknownBefore, invalidBefore) =
+                (nullQualities, unknownSubstatuses, invalidTimestamps);
+
             var quality = MapQuality(row.Q, ref nullQualities, ref unknownSubstatuses);
             var timestamp = MapTimestamp(row.Ts, ref quality, ref invalidTimestamps);
+
+            var anomaly = SqlRowAnomaly.None;
+            if (row.V is null) anomaly |= SqlRowAnomaly.NullValue;
+            if (nullQualities != nullQualitiesBefore) anomaly |= SqlRowAnomaly.NullQuality;
+            if (unknownSubstatuses != unknownBefore) anomaly |= SqlRowAnomaly.UnknownSubstatus;
+            if (invalidTimestamps != invalidBefore) anomaly |= SqlRowAnomaly.InvalidTimestamp;
+
+            // Igual que en samples, un duplicado pisa al anterior; si el que
+            // queda esta sano, no puede arrastrar la anomalia del otro.
+            if (anomaly == SqlRowAnomaly.None) anomalies.Remove(row.Tag);
+            else anomalies[row.Tag] = anomaly;
 
             // V en NULL: no hay medicion. Se publica sin valor y con calidad no
             // mejor que Uncertain; la cache conserva el ultimo valor bueno y su
@@ -77,7 +119,7 @@ public sealed class SqlTagMapper
         }
 
         return new SqlMappingResult(
-            samples, nullValues, nullQualities, unknownSubstatuses, invalidTimestamps);
+            samples, nullValues, nullQualities, unknownSubstatuses, invalidTimestamps, anomalies);
     }
 
     /// Q en NULL: hay medicion pero no hay codigo de calidad que mapear. Es una

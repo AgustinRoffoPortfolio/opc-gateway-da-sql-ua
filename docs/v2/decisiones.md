@@ -486,6 +486,10 @@ substatus no previstos y el caso `Error`.
 
 ### V2-21 — Tag SQL sin dato: los tres casos
 
+> **Enmendada por V2-30** en un solo punto: el aviso de log del tag ausente ya no
+> sale "una vez por sesión" sino una vez por cambio del conjunto. La calidad con
+> la que se publica cada caso no cambió.
+
 **Decisión.** Se cierran juntos los pendientes acumulados de V2-11 y V2-16, porque son tres situaciones distintas que se venían confundiendo:
 
 - **Tag declarado en el CSV que no aparece en el resultado de la consulta.** Es un error de configuración: el tag existe de este lado y no del otro. Se publica `Bad` con substatus de error de configuración, que es la misma forma que ya usa `ItemRejected` para un `ItemID` que el servidor DA rechaza, y se loguea **una vez por tag y por sesión**, no en cada ciclo: a 20 segundos de polling, avisar siempre inunda el log y esconde lo que importa. Esto es lo que P9 pide.
@@ -652,3 +656,33 @@ El primer arranque con el endpoint expuesto también dispara el cartel de permis
 Aparte: lo que `operacion.md` documenta bajo "Certificate Domain names" (dos entradas, hostname y `127.0.0.1`, en `SubjectName`) no coincide con lo medido hoy para este caso — acá el SAN sale con una sola entrada, la del host de la URL vigente al emitir. No se corrige esa sección: queda anotado acá como discrepancia a revisar.
 
 Probando el paquete zip se detectó que este último no trae `pki/` (se borra al armarlo, ver `tools/Build-PocPackage.ps1`), así que `pki/trusted/certs` no existe en la máquina destino hasta que el operador necesita mover ahí el certificado del cliente; el gateway ahora crea esa carpeta al arrancar (`Program.cs`) para que ese paso no falle. Aparte, el CSV de ejemplo de esta POC usaba el prefijo `SQL.` en `TAG_NAME_OPC_UA`, el mismo nombre que la carpeta de diagnóstico de la fuente SQL en el address space (`Gateway.Sql`/"Sql"); se resolvió cambiando el prefijo del CSV a `TAGS.`.
+
+---
+
+### V2-30 — Los avisos SQL salen por cambio y solo de tags declarados
+
+**Decisión.** Los avisos de tag ausente y de filas anómalas los decide
+`SqlWarningTracker`, una clase pura que vive lo mismo que el servicio. Se avisa la
+primera vez, cada vez que cambia el conjunto (nombre + tipo de anomalía) y una sola
+vez cuando vuelve a quedar vacío. El estado sobrevive a la reconexión. Las anomalías
+cuentan solo tags declarados en el CSV; el total de la tabla queda en `Debug`. Cada
+aviso nombra hasta 10 tags ("y N mas").
+
+**Por qué.** "Una vez por sesión" (V2-21) repetía el aviso en cada reconexión, y la
+reconexión ya tiene sus propios avisos. Contar toda la tabla hacía que un `NULL` en
+un tag que nadie pide disparara un WRN: con las ~10.000 filas de la tabla real sería
+ruido permanente. Verificado el 30/09 con un corte de base: tras reconectar no se
+repitió ningún aviso (`bb60070`).
+
+### V2-31 — La fuente inactiva se ve, y la tarjeta cuenta caídas
+
+**Decisión.** El snapshot suma `InactiveSources`. Una fuente con tags declarados y
+configuración inválida se muestra en la página como "Inactiva" con su motivo, en vez
+de desaparecer. Una fuente sin tags sigue sin mostrarse, porque no se usa. La tarjeta
+muestra `Disconnections` como "Caídas" en lugar de `Connections`.
+
+**Por qué.** Que la fuente desapareciera le ocultaba al operador justo el caso que
+tiene que corregir. El dato viaja en el snapshot y no en un endpoint aparte, para
+mantener una sola foto para la página y los nodos UA; entra como parámetro opcional,
+y el node manager no lo lee. `Connections` cuenta la primera conexión, así que
+"Reconexiones 1" al arrancar sugería una caída que no existió (`f64eda3`).

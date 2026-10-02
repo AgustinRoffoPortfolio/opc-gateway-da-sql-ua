@@ -2,7 +2,7 @@
 
 Especificación de la segunda fuente de datos de la v2 del gateway. Define qué se construye; el cómo se resuelve en `decisiones-v2.md`.
 
-Los IDs `R1`–`R7` identifican requisitos y `P1`–`P13` puntos de especificación aclarados durante el diseño.El resto de `docs/` los referencia por número.
+Los IDs `R1`–`R7` identifican requisitos y `P1`–`P13` puntos de especificación aclarados durante el diseño. El resto de `docs/` los referencia por número.
 
 ---
 

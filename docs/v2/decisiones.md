@@ -39,6 +39,15 @@ tres se verificaron antes de adoptarlo:
 
 Se fijó 7.0.2 y no la última publicada, para trabajar sobre una versión con rodaje.
 
+*Aclaración del 02/10/2026, revisando licencias para el README.* El paquete es MIT,
+pero la parte nativa que se verificó en x86 viene en una dependencia aparte,
+`Microsoft.Data.SqlClient.SNI.runtime` 6.0.2, que no es MIT: va bajo los términos de
+licencia de software de Microsoft para código redistribuible (se puede distribuir
+dentro de una aplicación, no suelta). No es copyleft y no está en el repositorio,
+así que no cambia la licencia del repo; sí aplica a quien redistribuya el paquete
+compilado. Las otras 21 transitivas que lista hoy `project.assets.json` de
+`Gateway.Sql` son MIT.
+
 **Nota de peso:** arrastra 17 dependencias transitivas, varias de identidad de Azure que
 este proyecto no usa. No es un problema de funcionamiento, pero es un argumento más para
 que el driver SQL viva en su propio proyecto: así ese árbol queda contenido detrás del

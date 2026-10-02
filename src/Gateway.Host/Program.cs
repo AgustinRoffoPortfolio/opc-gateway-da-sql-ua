@@ -308,8 +308,6 @@ var hasDaTags = tagLoadResult.Tags.Any(t => t.Source == TagSource.OpcDa);
 if (!hasDaTags)
     Log.Information("No hay tags de origen OPC DA en el CSV; la fuente DA no se activa.");
 
-// (el calculo de la ventana de antiguedad se movio abajo, antes de tagDefinitions)
-
 // Frontera entre los dos mundos: el driver DA la llena, el node manager la lee.
 // La ventana de antiguedad se traduce aca de ciclos a tiempo: el criterio se
 // configura en ciclos porque lo que importa es cuantas lecturas nos perdimos,
@@ -317,16 +315,12 @@ if (!hasDaTags)
 var staleAfter = TimeSpan.FromMilliseconds(
     (long)daOptions.UpdateRateMs * daOptions.StaleAfterCycles);
 
-// El umbral deja de ser un parametro de la cache y viaja por tag (V2-11). Hoy
-// todos los tags son DA y reciben el mismo valor, calculado desde DaOptions;
-// cuando entre la fuente SQL, sus definitions van a llevar null para que la
-// calidad la mande la columna Q y no el reloj del gateway.
-// Los tags SQL no se degradan por antiguedad (V2-11): su calidad sale de la
-// columna Q, que ya reporta la perdida del campo (P6), y el polling de decenas
-// de segundos degradaria todos los tags entre un ciclo y el siguiente.
-//
-// NO EJERCITADO todavia: CsvTagLoader pasa Source: TagSource.OpcDa fijo hasta
-// que entre V2-5 en la Fase 4, asi que hoy la rama Sql no se cumple nunca.
+// El umbral no es un parametro de la cache: viaja por tag (V2-11). Los tags DA
+// reciben todos el mismo, calculado desde DaOptions. Los SQL llevan null y no se
+// degradan por antiguedad: su calidad sale de la columna Q, que ya reporta la
+// perdida del campo (P6), y el polling de decenas de segundos degradaria todos
+// los tags entre un ciclo y el siguiente. La caida del vinculo SQL la marca el
+// driver al detectarla (V2-32), no el reloj.
 var tagDefinitions = tagLoadResult.Tags
     .Select(d => d with { StaleAfter = d.Source == TagSource.Sql ? null : staleAfter })
     .ToList();

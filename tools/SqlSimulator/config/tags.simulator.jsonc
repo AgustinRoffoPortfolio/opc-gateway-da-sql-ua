@@ -15,6 +15,9 @@
   // Cada cuanto el loop revisa que grupos vencieron.
   "tickMs": 500,
 
+  // Espera fija entre intentos de conexion si la base no responde o se cae.
+  "reconnectMs": 5000,
+
   // Periodo de refresco de cada grupo, en milisegundos. Misma unidad que
   // la columna SCAN_RATE_MS del CSV de la v1.
   "scanGroups": [

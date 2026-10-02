@@ -59,6 +59,14 @@ dotnet run --project tools\SqlSimulator
 La variable vive solo en esa ventana de PowerShell. Al abrir una nueva hay que
 definirla otra vez.
 
+Si la base todavía no acepta conexiones (recién levantada tarda unos 15 s), el
+simulador reintenta cada `reconnectMs` hasta lograrlo. Lo mismo si se cae con el
+simulador andando: loguea `Se perdio la conexion`, espera y reconecta.
+
+Se puede correr en segundo plano con la salida redirigida a un archivo. Sin
+consola interactiva las teclas `1` `2` `3` y `Esc` no están disponibles: se
+termina matando el proceso.
+
 **`Server=127.0.0.1` y no `localhost`.** En Windows, `localhost` resuelve primero
 a `::1` (loopback de IPv6), pero Docker publica el puerto en `127.0.0.1` (IPv4).
 El cliente de SQL se queda esperando en la dirección equivocada hasta agotar el
@@ -211,9 +219,15 @@ Están aceptadas a propósito, no son deuda a corregir.
   no necesita escalar: lo que tiene que escalar es el driver que **lee**, y eso
   se prueba contra la tabla real o contra un catálogo más grande, no contra este
   loop de escritura.
-- **Una sola conexión abierta todo el tiempo**, sin reconexión. Si se cae la
-  base, el simulador muere. La reconexión es requisito del gateway (R5), no de
-  esta herramienta.
+- **Reconexión simple, con espera fija.** Una sola conexión abierta todo el
+  tiempo; si no se puede abrir o se cae, el simulador lo loguea, espera
+  `reconnectMs` (5 s por defecto, en el catálogo) y vuelve a intentar, sin
+  límite de intentos ni espera creciente. El grupo que estaba escribiendo
+  cuando se cortó pierde esa vuelta y se escribe en su próximo vencimiento; el
+  modelo vive en memoria, así que los valores siguen la curva como si nada.
+  Durante la espera las teclas no se atienden. Alcanza para poder cortar la
+  base a propósito (para medir la reconexión del gateway, R5) sin tener que
+  relanzar el simulador.
 - **El valor forzado de `LocalOverride` es fijo.** Un operador real puede cambiar
   el valor que dejó puesto; acá sale del catálogo y no se mueve. Alcanza para lo
   que el driver tiene que distinguir, que es el código de calidad.

@@ -71,33 +71,52 @@ var fieldState = catalog.ScanGroups.ToDictionary(g => g.Name, _ => FieldState.He
 // Ultimo valor bueno de cada tag: es lo que queda congelado al perder el campo.
 var lastGoodValue = new Dictionary<string, float>();
 
+// Una sola conexion y un solo comando, que se rearman si se cae la base. La
+// sentencia es siempre la misma, asi que el comando y sus parametros se arman
+// una vez por conexion y solo se les cambia el valor en cada escritura.
+SqlConnection? connection = null;
+SqlCommand? command = null;
+SqlParameter pTag = null!, pTs = null!, pV = null!, pQ = null!;
+
+// Abre la conexion y reintenta con una espera fija hasta lograrlo. Una base que
+// se reinicia o todavia no acepta conexiones no tiene que matar al simulador.
+void Connect()
+{
+    while (true)
+    {
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Conectando...");
+        try
+        {
+            connection = new SqlConnection(connectionString);
+            connection.Open();
+            command = BuildMergeCommand(connection);
+            pTag = command.Parameters["@tag"];
+            pTs = command.Parameters["@ts"];
+            pV = command.Parameters["@v"];
+            pQ = command.Parameters["@q"];
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Conexion abierta.");
+            return;
+        }
+        catch (SqlException ex)
+        {
+            Disconnect();
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] No se pudo conectar: {ex.Message.Split('\n')[0].Trim()}");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Reintento en {catalog.ReconnectMs} ms.");
+            Thread.Sleep(catalog.ReconnectMs);
+        }
+    }
+}
+
+void Disconnect()
+{
+    command?.Dispose();
+    connection?.Dispose();
+    command = null;
+    connection = null;
+}
+
 Console.WriteLine();
-Console.WriteLine("Conectando...");
-
-using var connection = new SqlConnection(connectionString);
-connection.Open();
-Console.WriteLine("Conexion abierta.");
-
-// La sentencia es siempre la misma, asi que el comando y sus parametros se
-// arman una sola vez y solo se les cambia el valor en cada escritura.
-using var command = new SqlCommand(
-    """
-    MERGE dbo.CURR_DATA AS target
-    USING (SELECT @tag AS TAG) AS source
-    ON target.TAG = source.TAG
-    WHEN MATCHED THEN
-        UPDATE SET TS = @ts, V = @v, Q = @q
-    WHEN NOT MATCHED THEN
-        INSERT (TAG, TS, V, Q) VALUES (@tag, @ts, @v, @q);
-    """,
-    connection);
-
-// Parametros tipados, nunca concatenacion de texto: asi el valor viaja como
-// numero y la coma decimal de es-AR no puede colarse.
-var pTag = command.Parameters.Add("@tag", System.Data.SqlDbType.VarChar, 50);
-var pTs = command.Parameters.Add("@ts", System.Data.SqlDbType.DateTime);
-var pV = command.Parameters.Add("@v", System.Data.SqlDbType.Real);
-var pQ = command.Parameters.Add("@q", System.Data.SqlDbType.SmallInt);
+Connect();
 
 Console.WriteLine();
 Console.WriteLine("Simulando. Teclas: 1/2/3 ciclan un grupo (sano -> campo perdido -> falla de comunicacion), Esc termina.");
@@ -111,7 +130,9 @@ var writes = 0;
 while (running)
 {
     // Teclas primero: cortar un grupo tiene que verse en el ciclo siguiente.
-    while (Console.KeyAvailable)
+    // Con la entrada redirigida (corrida en segundo plano) no hay teclado:
+    // Console.KeyAvailable tiraria InvalidOperationException.
+    while (!Console.IsInputRedirected && Console.KeyAvailable)
     {
         var key = Console.ReadKey(intercept: true).Key;
 
@@ -157,6 +178,7 @@ while (running)
 
         nextDue[group.Name] = now.AddMilliseconds(group.PeriodMs);
         var state = fieldState[group.Name];
+        var lost = false;
 
         foreach (var tag in catalog.Tags.Where(t => t.ScanGroup == group.Name))
         {
@@ -222,8 +244,28 @@ while (running)
             pV.Value = (object?)value ?? DBNull.Value;
             pQ.Value = (object?)quality ?? DBNull.Value;
 
-            command.ExecuteNonQuery();
-            writes++;
+            // Si la base se cae a mitad del ciclo, el resto del grupo se pierde
+            // en esta vuelta y se escribe en la siguiente: el estado del modelo
+            // vive en memoria y no depende de la conexion.
+            try
+            {
+                command!.ExecuteNonQuery();
+                writes++;
+            }
+            catch (Exception ex) when (ex is SqlException or InvalidOperationException)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Se perdio la conexion: {ex.Message.Split('\n')[0].Trim()}");
+                Disconnect();
+                Thread.Sleep(catalog.ReconnectMs);
+                Connect();
+                lost = true;
+                break;
+            }
+        }
+
+        if (lost)
+        {
+            continue;
         }
 
         var nota = state switch
@@ -241,7 +283,31 @@ while (running)
 
 Console.WriteLine();
 Console.WriteLine($"Terminado. Escrituras totales: {writes}");
+Disconnect();
 return 0;
+
+static SqlCommand BuildMergeCommand(SqlConnection connection)
+{
+    var command = new SqlCommand(
+        """
+        MERGE dbo.CURR_DATA AS target
+        USING (SELECT @tag AS TAG) AS source
+        ON target.TAG = source.TAG
+        WHEN MATCHED THEN
+            UPDATE SET TS = @ts, V = @v, Q = @q
+        WHEN NOT MATCHED THEN
+            INSERT (TAG, TS, V, Q) VALUES (@tag, @ts, @v, @q);
+        """,
+        connection);
+
+    // Parametros tipados, nunca concatenacion de texto: asi el valor viaja como
+    // numero y la coma decimal de es-AR no puede colarse.
+    command.Parameters.Add("@tag", System.Data.SqlDbType.VarChar, 50);
+    command.Parameters.Add("@ts", System.Data.SqlDbType.DateTime);
+    command.Parameters.Add("@v", System.Data.SqlDbType.Real);
+    command.Parameters.Add("@q", System.Data.SqlDbType.SmallInt);
+    return command;
+}
 
 // --- Modelos y tipos -------------------------------------------------------
 
@@ -276,6 +342,7 @@ sealed class SimulatorCatalog
     public short LocalOverrideQuality { get; set; } = 216;
     public short UncertainQuality { get; set; } = 64;
     public int TickMs { get; set; } = 500;
+    public int ReconnectMs { get; set; } = 5000;
     public List<ScanGroup> ScanGroups { get; set; } = [];
     public List<SimulatorTag> Tags { get; set; } = [];
 }

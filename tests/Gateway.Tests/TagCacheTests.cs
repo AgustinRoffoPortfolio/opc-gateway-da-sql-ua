@@ -494,4 +494,120 @@ public class TagCacheTests
         Assert.Equal(14.0, state.ScaledValue);
         Assert.Equal(T2, state.SourceTimestamp);
     }
+
+    // --- Marca de fuente caida (V2-32) ---
+
+    // Tags SQL como los arma el host: sin umbral de antiguedad (V2-11), para que
+    // lo unico que pueda cambiar la calidad sea la marca o una muestra.
+    private static TagDefinition SqlDef(string uaName, string sourceTag) =>
+        new(uaName, TagSource.Sql, sourceTag, TagDataType.Double, 1.0, 0.0, StaleAfter: null);
+
+    private static readonly TagQuality UncertainDeQ =
+        new(QualityMaster.Uncertain, QualitySubstatus.UncertainSensorNotAccurate, QualityLimit.NotLimited);
+
+    private static readonly TagQuality BadDeQ =
+        new(QualityMaster.Bad, QualitySubstatus.BadDeviceFailure, QualityLimit.NotLimited);
+
+    [Fact]
+    public void MarcaDeFuenteCaida_PasaGoodALastUsableValue()
+    {
+        var cache = new TagCache([SqlDef("PLANTA_01.SQL_A", "TAG_A")]);
+        cache.Update(TagSource.Sql, new Dictionary<string, TagSample>
+        {
+            ["TAG_A"] = new TagSample(5.0, TagQuality.Good, T1)
+        });
+
+        cache.MarkSourceDown(TagSource.Sql);
+
+        Assert.Equal(TagQuality.LastUsableValue, cache.Get("PLANTA_01.SQL_A").Quality);
+    }
+
+    [Fact]
+    public void MarcaDeFuenteCaida_NoTocaUncertainNiBad()
+    {
+        // La marca solo degrada: un Uncertain o un Bad ya explican algo mas
+        // especifico que "no hay vinculo", y pisarlos perderia la causa.
+        var cache = new TagCache([
+            SqlDef("PLANTA_01.SQL_UNCERTAIN", "TAG_U"),
+            SqlDef("PLANTA_01.SQL_BAD", "TAG_B"),
+            SqlDef("PLANTA_01.SQL_AUSENTE", "TAG_M"),
+            SqlDef("PLANTA_01.SQL_SIN_DATO", "TAG_W")]);
+        cache.Update(TagSource.Sql, new Dictionary<string, TagSample>
+        {
+            ["TAG_U"] = new TagSample(1.0, UncertainDeQ, T1),
+            ["TAG_B"] = new TagSample(2.0, BadDeQ, T1),
+            ["TAG_M"] = TagSample.NoData(TagQuality.RowMissing)
+        });
+
+        cache.MarkSourceDown(TagSource.Sql);
+
+        Assert.Equal(UncertainDeQ, cache.Get("PLANTA_01.SQL_UNCERTAIN").Quality);
+        Assert.Equal(BadDeQ, cache.Get("PLANTA_01.SQL_BAD").Quality);
+        Assert.Equal(TagQuality.RowMissing, cache.Get("PLANTA_01.SQL_AUSENTE").Quality);
+        Assert.Equal(TagQuality.WaitingForInitialData, cache.Get("PLANTA_01.SQL_SIN_DATO").Quality);
+    }
+
+    [Fact]
+    public void MarcaDeFuenteCaida_ConservaValorYSourceTimestamp()
+    {
+        var cache = new TagCache([SqlDef("PLANTA_01.SQL_A", "TAG_A")]);
+        cache.Update(TagSource.Sql, new Dictionary<string, TagSample>
+        {
+            ["TAG_A"] = new TagSample(5.0, TagQuality.Good, T1)
+        });
+        var before = cache.Get("PLANTA_01.SQL_A");
+
+        cache.MarkSourceDown(TagSource.Sql);
+
+        var after = cache.Get("PLANTA_01.SQL_A");
+        Assert.Equal(5.0, after.ScaledValue);
+        Assert.Equal(T1, after.SourceTimestamp);
+        // Tampoco es una muestra: la hora de la ultima incorporacion no avanza.
+        Assert.Equal(before.LastUpdateUtc, after.LastUpdateUtc);
+    }
+
+    [Fact]
+    public void CicloPosteriorALaMarca_VuelveALaCalidadDeQ()
+    {
+        var cache = new TagCache([
+            SqlDef("PLANTA_01.SQL_A", "TAG_A"),
+            SqlDef("PLANTA_01.SQL_B", "TAG_B")]);
+        cache.Update(TagSource.Sql, new Dictionary<string, TagSample>
+        {
+            ["TAG_A"] = new TagSample(5.0, TagQuality.Good, T1),
+            ["TAG_B"] = new TagSample(6.0, TagQuality.Good, T1)
+        });
+        cache.MarkSourceDown(TagSource.Sql);
+
+        // El primer ciclo tras reconectar pisa la marca con lo que traiga Q,
+        // sea mejor o peor que la marca.
+        cache.Update(TagSource.Sql, new Dictionary<string, TagSample>
+        {
+            ["TAG_A"] = new TagSample(7.0, TagQuality.Good, T2),
+            ["TAG_B"] = new TagSample(8.0, UncertainDeQ, T2)
+        });
+
+        var a = cache.Get("PLANTA_01.SQL_A");
+        Assert.Equal(TagQuality.Good, a.Quality);
+        Assert.Equal(7.0, a.ScaledValue);
+        Assert.Equal(T2, a.SourceTimestamp);
+        Assert.Equal(UncertainDeQ, cache.Get("PLANTA_01.SQL_B").Quality);
+    }
+
+    [Fact]
+    public void MarcaDeFuenteCaida_NoAfectaTagsDeLaOtraFuente()
+    {
+        // Mismo nombre de origen en las dos fuentes a proposito: la marca tiene
+        // que filtrar por fuente, no por nombre.
+        var cache = new TagCache([
+            SqlDef("PLANTA_01.DESDE_SQL", "TIC101.PV"),
+            DefOf("PLANTA_01.DESDE_DA", TagSource.OpcDa, "TIC101.PV")]);
+        cache.Update(TagSource.Sql, SampleOf("TIC101.PV", 11.0));
+        cache.Update(TagSource.OpcDa, SampleOf("TIC101.PV", 22.0));
+
+        cache.MarkSourceDown(TagSource.Sql);
+
+        Assert.Equal(TagQuality.LastUsableValue, cache.Get("PLANTA_01.DESDE_SQL").Quality);
+        Assert.Equal(TagQuality.Good, cache.Get("PLANTA_01.DESDE_DA").Quality);
+    }
 }

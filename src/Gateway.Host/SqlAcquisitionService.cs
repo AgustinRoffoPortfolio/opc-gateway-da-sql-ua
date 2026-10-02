@@ -159,6 +159,15 @@ public sealed class SqlAcquisitionService
                 _lastError = ex.Message;
                 Interlocked.Increment(ref _readFailures);
 
+                // Los tags SQL no se degradan por antiguedad (V2-11), asi que sin
+                // esto seguirian en Good con valores congelados (V2-32). Va sin
+                // condicion y no atada a faultLogged: esa bandera solo vuelve a
+                // false al cancelar, no al reconectar, asi que en la segunda
+                // caida ya esta en true y la marca no se aplicaria. Repetirla en
+                // cada reintento es inocuo: despues de la primera no queda ningun
+                // Good, y solo este hilo escribe los tags SQL.
+                _cache.MarkSourceDown(TagSource.Sql);
+
                 if (faultLogged)
                     Log.Warning("Sigue caido el vinculo con SQL Server: {Mensaje}", ex.Message);
                 else

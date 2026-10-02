@@ -100,4 +100,81 @@ public class GatewayNodeManagerTests
         Assert.NotNull(sqlNode);
         Assert.Same(daNode!.Parent, sqlNode!.Parent);
     }
+
+    [Fact]
+    public void TagSqlMarcado_SePublicaUncertainLastUsableValueConSuTimestamp()
+    {
+        // El caso delicado de V2-32: la marca cambia solo la calidad. Valor y
+        // SourceTimestamp quedan iguales, y el cliente suscripto se tiene que
+        // enterar igual.
+        var definitions = new List<TagDefinition>
+        {
+            new("Planta.DesdeSql", TagSource.Sql, "TagSql", TagDataType.Double, 1.0, 0.0)
+        };
+        var cache = new TagCache(definitions);
+        var (manager, namespaces) = GatewayNodeManagerTestHarness.Build(definitions, cache);
+
+        cache.Update(TagSource.Sql, new Dictionary<string, TagSample>
+        {
+            ["TagSql"] = new TagSample(42.0, TagQuality.Good, T1)
+        });
+        manager.UpdateValues();
+
+        var node = manager.FindPredefinedNode<BaseDataVariableState>(
+            GatewayNodeManagerTestHarness.NodeIdFor(namespaces, "Planta.DesdeSql"));
+        Assert.NotNull(node);
+        var before = new DataValue(new Variant(node!.Value), node.StatusCode, node.Timestamp);
+
+        var notified = NodeStateChangeMasks.None;
+        node.StateChanged += (_, _, masks) => notified |= masks;
+
+        cache.MarkSourceDown(TagSource.Sql);
+        manager.UpdateValues();
+
+        var after = new DataValue(new Variant(node.Value), node.StatusCode, node.Timestamp);
+
+        Assert.Equal(42.0, after.Value);
+        Assert.Equal(before.Value, after.Value);
+        Assert.Equal(T1, after.SourceTimestamp);
+        Assert.Equal(StatusCodes.Good, before.StatusCode.Code);
+        Assert.Equal(StatusCodes.UncertainLastUsableValue, after.StatusCode.Code);
+
+        // Las dos mitades del camino hacia el cliente suscripto: el nodo avisa
+        // un cambio de Value (el setter de StatusCode lo levanta aunque el valor
+        // no cambie), y el filtro del MonitoredItem, con el trigger por defecto
+        // StatusValue, lo deja pasar porque cambio el status.
+        Assert.True(notified.HasFlag(NodeStateChangeMasks.Value));
+        Assert.True(Opc.Ua.Server.MonitoredItem.ValueChanged(
+            after, null, before, null, null, 0));
+    }
+
+    [Fact]
+    public void FuenteSqlInactiva_PublicaDisconnectedYConfiguracionInvalidaEnGood()
+    {
+        var definitions = new List<TagDefinition>
+        {
+            new("Planta.DesdeSql", TagSource.Sql, "TagSql", TagDataType.Double, 1.0, 0.0)
+        };
+        var cache = new TagCache(definitions);
+        var (manager, namespaces) = GatewayNodeManagerTestHarness.Build(definitions, cache);
+
+        manager.PublishInactiveSources([new InactiveSource(TagSource.Sql, "motivo para la pagina")]);
+
+        var linkState = manager.FindPredefinedNode<BaseDataVariableState>(
+            GatewayNodeManagerTestHarness.NodeIdFor(namespaces, "Gateway.Sql.LinkState"));
+        var lastError = manager.FindPredefinedNode<BaseDataVariableState>(
+            GatewayNodeManagerTestHarness.NodeIdFor(namespaces, "Gateway.Sql.LastError"));
+        var readCycles = manager.FindPredefinedNode<BaseDataVariableState>(
+            GatewayNodeManagerTestHarness.NodeIdFor(namespaces, "Gateway.Sql.ReadCycles"));
+
+        Assert.NotNull(linkState);
+        Assert.NotNull(lastError);
+        Assert.Equal("Disconnected", linkState!.Value);
+        Assert.Equal("Configuracion invalida", lastError!.Value);
+        // Diagnostico siempre en Good: la falla va en el contenido.
+        Assert.Equal(StatusCodes.Good, linkState.StatusCode.Code);
+        Assert.Equal(StatusCodes.Good, lastError.StatusCode.Code);
+        // El resto de la rama queda como estaba: no hay ciclos que contar.
+        Assert.Null(readCycles!.Value);
+    }
 }

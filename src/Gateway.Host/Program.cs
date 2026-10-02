@@ -384,6 +384,12 @@ if (sqlActivation.Active)
 
 Log.Information("Address space listo: {Tags} tags", server.NodeManager?.TagCount ?? 0);
 
+// La rama de diagnostico de una fuente inactiva no la toca el timer, porque no
+// hay status que reportar. Se publica una sola vez su estado (B10) para que no
+// quede con los valores iniciales del nodo.
+if (inactiveSources.Count > 0)
+    server.NodeManager?.PublishInactiveSources(inactiveSources);
+
 // Cada ciclo: publicar los valores actuales a los nodos suscriptos.
 var interval = TimeSpan.FromMilliseconds(options.UpdateIntervalMs);
 // Instante de arranque para el uptime del diagnostico. Se toma aca, con todo

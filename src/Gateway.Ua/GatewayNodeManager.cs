@@ -289,6 +289,36 @@ public class GatewayNodeManager : CustomNodeManager2
         }
     }
 
+    /// <summary>
+    /// Publica el estado de las fuentes con tags declarados que no arrancaron
+    /// (B10). Lo llama el host una sola vez, al arrancar.
+    /// </summary>
+    /// <remarks>
+    /// La rama de una fuente inactiva se crea igual (hay tags declarados), pero
+    /// PublishDiagnostics solo recorre las fuentes activas, asi que sus nodos
+    /// quedaban en null para siempre. Alcanza con publicar una vez: ningun ciclo
+    /// vuelve a tocar esta rama. Solo LinkState y LastError; el resto queda en
+    /// null, porque no hay ciclos ni conexiones que contar.
+    ///
+    /// Disconnected y no un valor nuevo del enum: el contrato del nodo ya tiene
+    /// ese vocabulario, y el motivo va en LastError. El texto es fijo y no el
+    /// Reason de InactiveSource: ese esta redactado para la pagina.
+    /// </remarks>
+    public void PublishInactiveSources(IReadOnlyList<InactiveSource> inactiveSources)
+    {
+        lock (Lock)
+        {
+            var now = DateTime.UtcNow;
+
+            foreach (var inactive in inactiveSources)
+            {
+                var f = inactive.Source.ToString();
+                SetDiagnostic($"{f}.LinkState", LinkState.Disconnected.ToString(), now);
+                SetDiagnostic($"{f}.LastError", "Configuracion invalida", now);
+            }
+        }
+    }
+
     private void SetDiagnostic(string key, object value, DateTime timestamp)
     {
         if (!_diagnosticNodes.TryGetValue(key, out var node)) return;

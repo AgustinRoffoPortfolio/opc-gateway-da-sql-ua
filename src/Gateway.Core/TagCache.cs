@@ -199,6 +199,44 @@ public sealed class TagCache
     }
 
     /// <summary>
+    /// Marca de una vez los tags de una fuente cuyo vinculo se corto (V2-32):
+    /// los que estan en Good pasan a LastUsableValue y el resto queda como esta.
+    /// </summary>
+    /// <remarks>
+    /// Existe para SQL, que no se degrada por antiguedad (V2-11): sin esta marca
+    /// un tag seguiria publicandose en Good con un valor congelado mientras la
+    /// base esta caida. DA no la usa porque su antiguedad ya llega al mismo
+    /// estado por otro camino.
+    ///
+    /// Valor, SourceTimestamp y LastUpdateUtc no se tocan: la marca no es una
+    /// muestra, y el gateway no inventa un momento de origen para un dato que no
+    /// leyo. Misma regla que la degradacion por antiguedad: solo degrada, nunca
+    /// mejora. Un Uncertain de la columna Q o un Bad ya dicen algo mas
+    /// especifico que "no hay vinculo", y pisarlos perderia la causa.
+    ///
+    /// A diferencia de Degrade, escribe el estado guardado. No afecta al ciclo
+    /// siguiente porque Apply solo toma del estado previo el valor y su
+    /// timestamp, nunca la calidad: el primer ciclo exitoso pisa la marca con
+    /// la calidad que traiga la fuente.
+    /// </remarks>
+    public void MarkSourceDown(TagSource source)
+    {
+        foreach (var (key, definitions) in _definitionsByKey)
+        {
+            if (key.Source != source)
+                continue;
+
+            foreach (var definition in definitions)
+            {
+                var state = _stateByUaName.GetValueOrDefault(definition.OpcUaName);
+
+                if (state.Quality.Master == QualityMaster.Good)
+                    _stateByUaName[definition.OpcUaName] = state with { Quality = TagQuality.LastUsableValue };
+            }
+        }
+    }
+
+    /// <summary>
     /// Degrada la calidad de un tag que dejo de refrescarse.
     /// </summary>
     /// <remarks>

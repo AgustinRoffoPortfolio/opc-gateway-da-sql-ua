@@ -9,8 +9,8 @@ tabla de SQL Server que escribe otra aplicación, sin tocar ninguna de las dos.
 > **Alcance.** Es la versión 2 de
 > [opc-gateway-da-ua](https://github.com/AgustinRoffoPortfolio/opc-gateway-da-ua),
 > que solo tenía la fuente OPC DA. No es un producto y no va a producción: corre en
-> TEST mientras la integración definitiva llega por otro servidor OPC UA que todavía
-> no existe (P12 de [`docs/v2/requisitos.md`](docs/v2/requisitos.md)).
+> TEST hasta que la integración definitiva llegue por otro servidor OPC UA (P12 de
+> [`docs/v2/requisitos.md`](docs/v2/requisitos.md)).
 
 ## Demo
 
@@ -170,8 +170,9 @@ Las decisiones de la v2 se citan como **V2-n** y están en
 - **Con la base caída, no mentirle al cliente** (V2-32). Si el driver pierde la
   base, los tags SQL en `Good` pasan a `Uncertain` *last usable value*, con el
   mismo valor y el mismo `SourceTimestamp`. `Bad` borraría el valor; `Good` diría
-  que el dato está vivo cuando nadie lo refresca. Medido con la máquina libre:
-  detección en ~12–14 s, recuperación en ~15–16 s
+  que el dato está vivo cuando nadie lo refresca. La detección depende de en qué
+  momento del ciclo cae el corte: el techo es ~40 s (polling 30 + timeout 10) y lo
+  medido fue de ~12 a ~32 s. La recuperación, con la máquina libre, ~15–16 s
   ([`docs/v2/verificacion.md`](docs/v2/verificacion.md)).
 - **Una fuente no frena ni pisa a la otra** (invariante 8: V2-10, V2-12). Cada
   fuente tiene su hilo, así que una consulta SQL colgada no demora la lectura DA; y

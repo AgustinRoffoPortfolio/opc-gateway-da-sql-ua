@@ -739,3 +739,32 @@ inventaría datos de una fuente que no corrió.
 **Lo que no cubre.** La aplicación de origen muerta con la base viva (caso b de B9,
 pregunta P14), y un ciclo colgado sin excepción, que no marca nada hasta que vence
 `CommandTimeout`.
+
+---
+
+### V2-33 — Una fila con `TS` nulo o un tipo inesperado aborta el ciclo SQL
+
+**Decisión.** `SqlTagSource.ReadRows` se queda como está: saltea solo las filas con
+`TAG` nulo o en blanco. Un `TS` en `NULL`, o una columna con un tipo distinto del
+esperado (`TAG` no texto, `TS` no `datetime`, `V` no `real`, `Q` no `smallint`), hace
+tirar al reader; la excepción propaga, el ciclo entero se pierde y el host lo trata
+como cualquier otra caída: reconecta cada `ReconnectDelaySeconds`, loguea el motivo y
+marca los tags SQL (V2-32). No hay captura por fila.
+
+**Por qué.** El esquema real (P1) declara `TAG` y `TS` como `NOT NULL` y fija los
+cuatro tipos: ninguno de esos casos puede ocurrir contra la tabla de producción, y el
+relevamiento de R7 no encontró nada que los contradiga. El salteo de `TAG` vacío ya es
+defensa de más. Capturar por fila agregaría código y un contador nuevo para casos que
+la base no permite, y los tipos inesperados no son un problema de una fila sino de la
+configuración: si `Sql:Columns` (R6) apunta a otra columna, falla **todas** las filas,
+y saltearlas una por una publicaría la tabla entera como ausente con un aviso
+engañoso ("la consulta no trajo el tag") en vez del error real del tipo. Que el ciclo
+falle deja el motivo exacto en `LastError` y en el log, que es donde hay que mirar.
+
+**Costo.** Si alguna vez la tabla llegara a tener una fila así (un cambio de esquema
+en origen, o `Sql:Columns` mal configurado), una sola fila deja **todos** los tags SQL
+sin refrescar: quedan en `Uncertain` *last usable value* (V2-32), el diagnóstico de
+`Sql` en `Reconnecting` y el log repite "Sigue caido el vinculo" cada 15 s, aunque la
+base esté sana. Se diagnostica por el mensaje de la excepción, no por el nombre del
+estado. Si se diera contra el servidor real, la salida es saltear la fila y contarla
+como anomalía, igual que un `V` o un `Q` nulos (V2-16), y esta decisión se revisa.

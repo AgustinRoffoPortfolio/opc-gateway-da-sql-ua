@@ -55,7 +55,8 @@ public sealed class SqlTagSource : IDisposable
     /// Lo unico que se saltea por fila es un TAG en NULL o en blanco. No hay
     /// captura por fila: un TS en NULL o un tipo inesperado en TAG (GetString),
     /// TS, V o Q hace tirar al reader, la excepcion propaga, se pierde el ciclo
-    /// entero y el host reconecta.
+    /// entero y el host reconecta. Es a proposito: el esquema real no permite
+    /// esos casos (V2-33).
     public IReadOnlyList<SqlTagRow> ReadRows()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

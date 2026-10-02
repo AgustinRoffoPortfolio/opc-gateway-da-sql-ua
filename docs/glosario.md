@@ -81,6 +81,45 @@ registro.
 componente COM in-process de 32 bits no se puede cargar en un proceso de 64 bits.
 Es la razón por la que el ejecutable del gateway se compila como x86.
 
+## Del lado SQL Server (v2)
+
+**SQL Server** — El motor de base de datos de Microsoft donde vive la tabla que
+lee la segunda fuente del gateway. No se eligió: viene dado, porque la tabla ya
+existe y otra aplicación la escribe (V2-1). En desarrollo corre en un contenedor.
+
+**T-SQL (Transact-SQL)** — El dialecto de SQL de SQL Server. Lo que se ve en la
+consulta del gateway y no es SQL estándar, como los corchetes alrededor de los
+nombres (`[dbo].[Tabla]`) o la pista `WITH (NOLOCK)`, es T-SQL.
+
+**NOLOCK** — Una pista de la consulta que le dice a SQL Server que lea sin pedir
+bloqueos, para no frenar a la aplicación que escribe la tabla al mismo tiempo.
+Equivale a leer en modo *read uncommitted*: a cambio, la lectura puede traer un
+valor que todavía no se confirmó, o saltear o repetir una fila que se está
+moviendo. La consulta del gateway la usa porque lo pide el requisito R3.
+
+**Polling** — Preguntar cada cierto tiempo en vez de esperar a que avisen. El
+gateway consulta la tabla entera cada `Sql:PollingIntervalSeconds` (30 s por
+defecto): SQL Server no le avisa cuando una fila cambia.
+
+**Connection string (cadena de conexión)** — El texto con todo lo necesario para
+conectarse a una base: servidor, puerto, base, usuario, password, cifrado,
+timeouts. El gateway no la recibe armada: recibe los parámetros sueltos en
+`Sql:*` y la arma con `SqlConnectionStringBuilder`, para que una password con `;`
+no rompa la cadena.
+
+**Pool de conexiones** — Un mecanismo de la biblioteca cliente que, al "cerrar"
+una conexión, la guarda abierta para reusarla en vez de cortarla. Sirve cuando
+muchos consumidores abren y cierran conexiones todo el tiempo. El gateway lo
+deshabilita (V2-20): tiene un solo consumidor, y con el pool activo el estado que
+reporta el diagnóstico podría no coincidir con el de la conexión real.
+
+**Override local de configuración** — Un archivo que se lee después de
+`appsettings.json` y pisa sus claves una por una. En este gateway es
+`appsettings.Local.json`, junto al ejecutable: ahí van usuario y password de SQL
+y, en la POC, la URL del endpoint expuesto a la red. Git lo ignora, así que nada
+de lo que tiene se versiona (V2-26). Las variables de entorno (`Sql__Password`,
+con doble guion bajo) se leen después y le ganan a los dos.
+
 ## Del dominio de proceso
 
 **EU (Engineering Units)** — La unidad de ingeniería con la que se expone el valor
@@ -89,8 +128,12 @@ gateway lo convierte a la unidad que corresponde.
 
 **Deadband** — Umbral de cambio mínimo para considerar que un valor efectivamente
 cambió. Sirve para no publicar el ruido de la última cifra decimal de un sensor.
+En este gateway la columna `DEADBAND` del CSV se lee pero no filtra nada, en
+ninguna de las dos fuentes (V2-22).
 
-**Scan rate** — Cada cuánto se lee un grupo de items del servidor DA.
+**Scan rate** — Cada cuánto se lee un grupo de items del servidor DA. Para un tag
+SQL el ritmo lo decide la aplicación de origen, no el gateway, y `SCAN_RATE_MS`
+se ignora (V2-22).
 
 **Modbus slave** — El rol de servidor en Modbus, que responde a los pedidos de un
 master. Se menciona porque un puente DA→Modbus es la alternativa clásica a un

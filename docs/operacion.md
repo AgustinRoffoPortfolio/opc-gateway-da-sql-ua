@@ -346,11 +346,15 @@ dos columnas lleva a creer que el gateway está abierto cuando no lo está.
 
 **Al cambiar el bind hay que reemitir el certificado del servidor.** El nombre de
 host viaja en el campo SAN del certificado, y el cliente lo compara contra la URL
-por la que se conectó. Un certificado emitido para una dirección y usado desde
-otra produce un rechazo por nombre de host que parece un problema de red y no lo
-es. El procedimiento es borrar el certificado propio de `pki/own/certs` y dejar
-que el gateway lo emita de nuevo en el próximo arranque, ya con la dirección
-nueva.
+por la que se conectó. El SAN lleva **un solo nombre**: el host del `EndpointUrl`
+vigente cuando se emitió el certificado, que el stack no recalcula después
+(V2-28). Emitido con `127.0.0.1` dice solo `IP=127.0.0.1`; emitido con el hostname,
+solo `DNS=<hostname>`. Un certificado emitido para una dirección y usado desde
+otra produce `BadCertificateHostNameInvalid`, un rechazo que parece un problema de
+red y no lo es. El procedimiento es borrar (o renombrar) la carpeta `pki/own`
+completa y dejar que el gateway emita uno nuevo en el próximo arranque, ya con la
+dirección nueva. Cambia el thumbprint, así que los clientes tienen que volver a
+confiar en él (ver "Al regenerar el certificado del gateway", más abajo).
 
 
 ## Volver atrás
@@ -485,9 +489,17 @@ arrancar: el stack imprime la lista contra la que valida.
      LAPTOP-0JPRBIMI
      127.0.0.1
 
-Dos entradas, no una. La primera sale de los `DC=` del subject, la segunda
-del SAN. Si alguna vez vuelve a aparecer una sola entrada con puntos en el
-medio, es esta misma recaida.
+Dos entradas, que salen de lugares distintos. La primera es el `DC=` del
+subject (siempre el nombre de la maquina). La segunda es el **unico** nombre
+del SAN, que es el host del `EndpointUrl` con el que se emitio el certificado
+(V2-28): `127.0.0.1` en el certificado de loopback, que es el de este ejemplo.
+El SAN no trae el hostname y la IP a la vez. Comprobado el 02/10/2026 sobre
+los certificados publicos de `pki/own/certs`: el de loopback tiene subject
+`DC=laptop-0jprbimi` y SAN `IP=127.0.0.1` (mas la URI de la aplicacion); uno
+emitido con el hostname en la URL tenia SAN `DNS=laptop-0jprbimi` y nada mas.
+En ese segundo caso la lista del log no se volvio a capturar. Si alguna vez
+vuelve a aparecer una sola entrada con puntos en el medio, es esta misma
+recaida.
 
 **El error de metodo que lo mantuvo abierto.** La hipotesis anotada era que
 la validacion comparaba contra los hostnames derivados del `applicationUri`.

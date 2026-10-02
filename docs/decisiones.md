@@ -105,6 +105,12 @@ Si se resolviera contra el working directory, arrancar con `dotnet run` desde la
 raíz y ejecutar el binario desde su carpeta de salida darían dos carpetas PKI
 distintas, y el certificado se regeneraría al alternar entre las dos formas.
 
+La única regeneración que se hace a propósito es al cambiar el host del
+`EndpointUrl`: el SAN lleva un solo nombre, el de la URL con la que se emitió, y
+no se recalcula. Se borra `pki/own` completa, el gateway emite uno nuevo al
+arrancar y los clientes vuelven a confiar en él (v2, V2-28; procedimiento en
+`operacion.md`).
+
 ---
 
 ## 7. El contrato se partió en dos, no se ensanchó

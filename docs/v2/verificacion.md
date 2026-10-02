@@ -59,3 +59,70 @@ timeout de 10 s es lo que acotó la espera.
 
 **No medido.** La base colgada con `docker pause` (el camino del timeout ya quedó
 ejercitado) y la aplicación de origen muerta con la base viva (V2-23).
+
+## Fase 5, V2-32 — tags SQL a `Uncertain` con el vínculo caído · 02/10/2026
+
+**Montaje.** `270b7be` (gateway) y el simulador de `aaad7b6`/`213fe4a`, mismo CSV
+(`config/demo-mixto.tags.csv`, 21 tags válidos), Matrikon con `demo-10.opcsim.xml`
+y la misma configuración SQL: polling 30 s, reintento 15 s, `CommandTimeout` 10 s.
+Arranque con lo esperado: 21 válidos, dos drivers, un WRN de 1 tag ausente
+(`PRUEBA_TAG_QUE_NO_EXISTE`) y uno de anomalías con 2 tags (`PRUEBA_NULO_CALIDAD`,
+`PRUEBA_NULO_VALOR`).
+
+**Método.** `docker stop` / `docker start` con `Get-Date -Format HH:mm:ss.fff` antes
+y después de cada comando. Calidades desde `/api/diagnostics/tags?onlyDegraded=false`
+(la misma cache que publica UA), sondeado cada 2 s, registrando cada cambio de
+substatus, valor o `SourceTimestamp` de los tags SQL y el conteo de DA en `Good`.
+Log del gateway con resolución de 1 s. Tres cortes; en el segundo el simulador
+estaba detenido (caso b).
+
+| | Corte 1 | Corte 2 (simulador detenido) | Corte 3 |
+|---|---|---|---|
+| `docker stop` | 15:48:39,6–42,4 | 15:52:03,3–05,0 | 15:53:43,3 |
+| Consulta que falla (fase del polling) | 15:48:59 | 15:52:05 | 15:53:45 |
+| WRN en el log | 15:49:09 "Se corto" | 15:52:15 "Sigue caido" | 15:53:55 "Sigue caido" |
+| Detección desde el stop | ~27–30 s | ~10–12 s | ~12 s |
+| Marca vista en el sondeo | 15:49:10,7 | 15:52:16,1 | 15:53:57,3 |
+| `docker start` | 15:49:42,4–44,0 | 15:52:17,1–18,6 | 15:53:54,6–55,5 |
+| Gateway conectado | 15:50:35 | 15:52:45 | 15:54:25 |
+| Recuperación desde el start | ~51 s | ~27 s | ~30 s |
+
+**La marca, tag por tag (cortes 1 y 2).** En el mismo segundo del WRN, los 7 tags
+SQL en `Good` pasaron a `UncertainLastUsableValue`, **incluido `PRESION_SALIDA`**, que
+venía en `GoodLocalOverride`. Valor y `SourceTimestamp` idénticos al último ciclo
+bueno (p. ej. `PRESION_ENTRADA` 13,29922 @ 18:48:29.157Z antes y después). No
+cambiaron `DENSIDAD` (`Uncertain` por `Q`), `PRUEBA.NULO_VALOR` y `PRUEBA.NULO_CALIDAD`
+(ya en `UncertainLastUsableValue`, V2-16) ni `PRUEBA.TAG_AUSENTE`
+(`BadConfigurationError`). Al reconectar, el primer ciclo devolvió cada tag a la
+calidad de su `Q` (`Good`, `GoodLocalOverride`). Los 10 tags DA estuvieron en `Good`
+con `SourceTimestamp` avanzando en todos los sondeos de la corrida, sin excepción.
+
+**Segundo corte.** El log dice "Sigue caido" y no "Se corto" (el bug conocido de
+`faultLogged`, no se arregla), y la marca se aplicó igual. Es lo que V2-32 previó al
+no atarla a esa bandera.
+
+**Caso b (P14), medido una vez.** Simulador detenido a las 15:51:50,1; base
+reiniciada (corte 2). Al reconectar, los tags SQL volvieron a `Good` con valores y
+`SourceTimestamp` congelados en la última escritura del simulador (18:51:48.643Z) y
+siguieron así en el ciclo siguiente (15:53:15), con `LastUpdateUtc` avanzando. El
+gateway no distingue "la aplicación de origen dejó de escribir" de "el valor no
+cambió": es el hueco que V2-32 declara no cubrir. Al relanzar el simulador
+(15:53:30) los valores volvieron a moverse.
+
+**Desvíos contra la predicción.**
+- **Detección.** Predicho ~30–40 s; medido entre ~10 y ~30 s. La detección es la
+  próxima consulta más el `CommandTimeout` (la conexión abierta se cuelga hasta los
+  10 s, igual que en el escenario 1), así que depende de en qué punto del ciclo de
+  30 s cae el stop: va de ~10 s a 40 s. La cota de V2-32 (40 s) se sostiene.
+- **Recuperación.** Predicho ~13–14 s (lo del escenario 1); medido 27–51 s. Lo que
+  manda es cuánto tarda SQL Server en aceptar logins después de `docker start`: los
+  reintentos intermedios fallan con "error durante el inicio de sesión previo del
+  protocolo de enlace", que es el contenedor arriba con el motor todavía arrancando.
+  Al tiempo de arranque se le suma hasta un ciclo de reintento (15 s). El 13–14 s
+  del escenario 1 fue un arranque rápido, no la regla.
+- **Caso b durante el corte 1, sin querer.** El simulador de `aaad7b6` tardó ~37 s
+  más que el gateway en reconectar (15:51:12 contra 15:50:35) porque usaba pooling:
+  SqlClient devolvía el error cacheado del "blocking period". Durante ese tramo el
+  gateway publicó `Good` con valores congelados, lo mismo que el caso b. Corregido en
+  `213fe4a` (sin pooling, como el gateway, V2-20); en el corte 3 el simulador
+  reconectó a las 15:54:20, antes que el gateway.

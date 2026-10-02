@@ -685,15 +685,19 @@ muestra `Disconnections` como "Caídas" en lugar de `Connections`.
 tiene que corregir. El dato viaja en el snapshot y no en un endpoint aparte, para
 mantener una sola foto para la página y los nodos UA; entra como parámetro opcional,
 y el node manager no lo lee. `Connections` cuenta la primera conexión, así que
-"Reconexiones 1" al arrancar sugería una caída que no existió (`f64eda3`).  
+"Reconexiones 1" al arrancar sugería una caída que no existió (`f64eda3`).
 
 ---
 
 ### V2-32 — Con el vínculo SQL caído, los tags SQL bajan a `Uncertain`
 
 **Decisión.** Cada vez que un intento del driver SQL falla (el `catch` de
-`SqlAcquisitionService.Run`: caída de `ReadRows`, del mapeo o de un reintento de
-`Connect`), la cache marca todos los tags SQL: los que están en `Good`, con o sin
+`SqlAcquisitionService.Run`), la cache marca todos los tags SQL. Ese `catch` atrapa
+cualquier excepción de la sesión, no solo la caída de `ReadRows`, del mapeo o de un
+reintento de `Connect`: también la escritura en la cache o la evaluación de avisos.
+Hoy cualquiera de ellas ya se trata como caída (cuenta en `ReadFailures`, reconecta y
+se loguea como corte del vínculo), así que la marca la acompaña y no agrega un
+criterio nuevo. En la marca, los tags SQL que están en `Good`, con o sin
 límite y también `GoodLocalOverride`, pasan a `Uncertain` *last usable value*,
 conservando valor, `SourceTimestamp` y `LastUpdateUtc`. Los que ya estaban en
 `Uncertain` o `Bad` (por `Q`, por `NULL`, por ausentes o esperando el primer dato) no

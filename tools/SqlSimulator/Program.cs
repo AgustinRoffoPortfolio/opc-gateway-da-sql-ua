@@ -17,6 +17,13 @@ if (string.IsNullOrWhiteSpace(connectionString))
     return 1;
 }
 
+// Pooling apagado, mismo criterio que el gateway (V2-20). Con pooling, despues
+// de un Open fallido el pool entra en "blocking period" y devuelve el mismo
+// error cacheado sin intentar de nuevo: medido, el simulador tardaba ~37 s mas
+// que el gateway en reconectar con la base ya viva. Con una sola conexion
+// persistente el pool no aporta nada.
+connectionString = new SqlConnectionStringBuilder(connectionString) { Pooling = false }.ConnectionString;
+
 var catalogPath = args.Length > 0
     ? args[0]
     : Path.Combine(AppContext.BaseDirectory, "config", "tags.simulator.jsonc");

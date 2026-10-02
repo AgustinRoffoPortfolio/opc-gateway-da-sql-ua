@@ -225,7 +225,11 @@ Están aceptadas a propósito, no son deuda a corregir.
   límite de intentos ni espera creciente. El grupo que estaba escribiendo
   cuando se cortó pierde esa vuelta y se escribe en su próximo vencimiento; el
   modelo vive en memoria, así que los valores siguen la curva como si nada.
-  Durante la espera las teclas no se atienden. Alcanza para poder cortar la
+  Durante la espera las teclas no se atienden. La conexión va **sin pooling**,
+  igual que la del gateway (V2-20): con pooling, después de un `Open` fallido
+  SqlClient devuelve el mismo error cacheado durante un "blocking period" sin
+  volver a intentar, y el simulador tardaba ~37 s más que el gateway en
+  reconectar con la base ya viva. Alcanza para poder cortar la
   base a propósito (para medir la reconexión del gateway, R5) sin tener que
   relanzar el simulador.
 - **El valor forzado de `LocalOverride` es fijo.** Un operador real puede cambiar

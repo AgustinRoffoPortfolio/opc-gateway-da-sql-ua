@@ -76,6 +76,12 @@ substatus, valor o `SourceTimestamp` de los tags SQL y el conteo de DA en `Good`
 Log del gateway con resolución de 1 s. Tres cortes; en el segundo el simulador
 estaba detenido (caso b).
 
+> **Salvedad agregada después.** Esta corrida se hizo con la CPU de la máquina al
+> 99 % por otra carga ajena al gateway. Los tiempos de **recuperación** de esta
+> tabla (27–51 s) quedan como registro de ese caso, no como representativos: la
+> remedición con la máquina libre está más abajo, en "Remedición de la
+> recuperación". La marca tag por tag, el caso b y la detección no dependen de eso.
+
 | | Corte 1 | Corte 2 (simulador detenido) | Corte 3 |
 |---|---|---|---|
 | `docker stop` | 15:48:39,6–42,4 | 15:52:03,3–05,0 | 15:53:43,3 |
@@ -119,10 +125,76 @@ cambió": es el hueco que V2-32 declara no cubrir. Al relanzar el simulador
   reintentos intermedios fallan con "error durante el inicio de sesión previo del
   protocolo de enlace", que es el contenedor arriba con el motor todavía arrancando.
   Al tiempo de arranque se le suma hasta un ciclo de reintento (15 s). El 13–14 s
-  del escenario 1 fue un arranque rápido, no la regla.
+  del escenario 1 fue un arranque rápido, no la regla. *Corregido por la
+  remedición:* con la máquina libre la recuperación dio ~15–16 s en los dos cortes.
+  El mecanismo (arranque del motor más hasta un ciclo de reintento) se confirma; lo
+  que alargaba el arranque del motor a 27–51 s era la CPU saturada.
 - **Caso b durante el corte 1, sin querer.** El simulador de `aaad7b6` tardó ~37 s
   más que el gateway en reconectar (15:51:12 contra 15:50:35) porque usaba pooling:
   SqlClient devolvía el error cacheado del "blocking period". Durante ese tramo el
   gateway publicó `Good` con valores congelados, lo mismo que el caso b. Corregido en
   `213fe4a` (sin pooling, como el gateway, V2-20); en el corte 3 el simulador
   reconectó a las 15:54:20, antes que el gateway.
+
+## Remedición de la recuperación, con la máquina libre · 02/10/2026
+
+**Por qué.** La corrida de V2-32 dio una recuperación de 27–51 s contra los 13–14 s
+del escenario 1, y se hizo con la CPU al 99 % por otra carga. Se repitieron dos
+cortes sin esa carga para saber cuál de los dos números es el representativo.
+
+**Montaje.** `f455787`, build Debug, `config/demo-mixto.tags.csv` (21 tags válidos),
+Matrikon con `demo-10.opcsim.xml` (10 tags DA en `Good` antes de empezar), contenedor
+`gateway-sql` y el simulador sin pooling (`213fe4a`). Misma configuración SQL:
+polling 30 s, reintento 15 s, `CommandTimeout` 10 s. Arranque con lo esperado: 21
+válidos, dos drivers, los dos WRN conocidos (1 tag ausente, 2 con anomalías).
+
+**Carga de la máquina.** `LoadPercentage` de `Win32_Processor`, muestreado a mano:
+23–38 % antes de empezar, 30 % después del primer `docker stop`, 67 % justo después
+del primer `docker start` (el arranque del propio contenedor) y 26–29 % en el
+segundo corte. Lejos del 99 % de la corrida anterior, pero no una máquina ociosa:
+había otras aplicaciones de escritorio abiertas.
+
+**Método.** `docker stop` / `docker start` con `Get-Date -Format HH:mm:ss.fff` antes
+y después. Sondeo de `/api/diagnostics` cada 1 s, registrando cada cambio de
+`LinkState` de `Sql`, los conteos de tags SQL por calidad y los tags DA en `Good`.
+Log del gateway con resolución de 1 s. El simulador reintenta cada 5 s, así que su
+log acota cuándo el motor empezó a aceptar logins, independiente del ciclo de
+reintento del gateway.
+
+| | Corte 1 | Corte 2 |
+|---|---|---|
+| `docker stop` | 16:28:16,3–17,6 | 16:29:31,2–31,9 |
+| WRN en el log | 16:28:29 "Se corto" | 16:29:45 "Sigue caido" |
+| Marca vista en el sondeo | 16:28:30,7 | 16:29:46,5 |
+| **Detección desde el stop** | **~12–13 s** | **~13–14 s** |
+| `docker start` | 16:28:49,4–50,5 | 16:29:59,3–30:00,1 |
+| Motor acepta logins (log del simulador) | entre 16:29:00 y 16:29:05 | entre 16:30:08 y 16:30:13 |
+| Gateway conectado (log) | 16:29:05 | 16:30:15 |
+| Sondeo en `Connected` | 16:29:07,1 | 16:30:16,8 |
+| **Recuperación desde el start** | **~15–16 s** | **~15–16 s** |
+
+**Lectura.** Con la máquina libre el motor tardó unos 9–15 s en aceptar logins
+después de `docker start`, y el gateway se conectó en el primer reintento
+posterior: en los dos cortes el reintento anterior cayó con el contenedor recién
+levantado y falló con el error del "inicio de sesión previo del protocolo de
+enlace", y el siguiente, 15 s después, entró. La recuperación es el arranque del
+motor más lo que falte para el próximo reintento, así que va de ~10 s a ~30 s según
+la fase; los dos cortes dieron ~15–16 s, cerca de los 13–14 s del escenario 1. **Estos
+son los números representativos**; los 27–51 s de la corrida de V2-32 fueron el
+mismo mecanismo con el arranque del motor alargado por la CPU saturada.
+
+La detección cayó en ~12–14 s en los dos cortes: la consulta siguiente al stop
+llegó pocos segundos después y se colgó hasta el `CommandTimeout` (en el corte 2,
+error "Se agotó el tiempo de espera de ejecución"), igual que en las corridas
+anteriores. Sigue dentro de la cota de 40 s de V2-32.
+
+**Lo demás, igual que antes.** En la marca, los 7 tags SQL en `Good` pasaron a
+`Uncertain` (conteos: `Good` 7 → 0, `Uncertain` 3 → 10, `Bad` 1 sin cambio) y
+volvieron a 7/3/1 en el primer ciclo después de reconectar. Los 10 tags DA
+estuvieron en `Good` en todos los sondeos de las dos caídas: el invariante 8 se
+sigue cumpliendo. El segundo corte volvió a loguear "Sigue caido" y no "Se corto"
+(el bug conocido de `faultLogged`), y la marca se aplicó igual.
+
+**No medido en esta corrida.** El caso b (aplicación de origen muerta con la base
+viva) y la marca tag por tag con valores y `SourceTimestamp`: se midieron una vez
+en la corrida de V2-32 y no dependen de la carga de la CPU.

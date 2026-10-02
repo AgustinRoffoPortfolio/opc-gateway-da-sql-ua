@@ -371,6 +371,63 @@ El único artefacto que sobrevive a un rollback es la PKI (`pki/`). Se conserva 
 propósito: borrarla obligaría a volver a confiar cada cliente. Si se vuelve a una
 versión con otro bind, aplica la reemisión del certificado descrita arriba.
 
+## Timestamps y notificaciones vistos desde el cliente (PI System)
+
+### `ServerTimestamp` igual al `SourceTimestamp` en una lectura
+
+Al leer un tag con el servicio **Read** (en UaExpert, el panel *Attributes*), el
+`ServerTimestamp` sale idéntico al `SourceTimestamp`, al milisegundo. Pasa con
+cualquier tag, DA o SQL; se notó primero en SQL porque sus valores cambian poco y
+la coincidencia salta a la vista (B6.1). **No lo hace el gateway.** El gateway
+solo escribe `node.Timestamp` (el `SourceTimestamp` que trae la fuente) y nunca
+toca el `ServerTimestamp`. Lo completa el stack UA (OPC Foundation .NET Standard
+1.5.378.156), y de forma distinta según el servicio:
+
+- **Read.** `CustomNodeManager2.Read`, para el atributo `Value`, copia el
+  `SourceTimestamp` en el `ServerTimestamp` (y si no hubiera `SourceTimestamp`,
+  pone la hora actual en los dos). Verificado leyendo el código del stack.
+- **Suscripción.** `MonitoredNode2.QueueValue` estampa el `ServerTimestamp` con la
+  hora del muestreo. Es lo que se midió en la Fase 2 (unos cientos de ms después
+  del `SourceTimestamp`) y lo que recibe un cliente que se suscribe.
+
+El principio "el `SourceTimestamp` no se pisa" se cumple en los dos casos. Si un
+cliente necesitara un `ServerTimestamp` propio también en el Read, habría que
+sobrescribir `Read` en `GatewayNodeManager`; hoy no hay un consumidor que lo pida.
+
+### La suscripción no notifica cambios de solo timestamp
+
+El trigger por defecto de un `MonitoredItem` es `StatusValue`: el servidor notifica
+cuando cambia el valor o el `StatusCode`, no cuando cambia solo el
+`SourceTimestamp` (B6.3). El gateway republica todos los nodos en cada ciclo de
+`UpdateIntervalMs`, pero el filtro del stack descarta esas muestras si valor y
+calidad son iguales a los anteriores.
+
+Qué ve un cliente tipo PI System con la configuración por defecto:
+
+- **Un tag que se refresca con el mismo valor no genera eventos.** En SQL es lo
+  normal: `PLANTA_02_ESTADO_BOMBA_01` en 1, o `PRESION_SALIDA` clavada en 9 por un
+  operador, tienen `TS` nuevo en cada escritura de la aplicación de origen y en PI
+  no aparece nada después del primer valor. El archivo de PI muestra el último
+  valor como vigente (con la hora de ese evento), que es correcto, pero no hay
+  forma de distinguir "se sigue confirmando" de "nadie lo actualiza" (el caso b de
+  P14, que el gateway tampoco distingue).
+- **Los cambios de calidad sí llegan.** La marca de V2-32 (vínculo SQL caído →
+  `Uncertain`) y la vuelta a `Good` cambian el `StatusCode`, así que generan
+  notificación aunque el valor no cambie.
+
+Qué configurar si hace falta ver cada refresco: un `DataChangeFilter` con
+`Trigger = StatusValueTimestamp` en los `MonitoredItem`, **sin deadband**: si el
+filtro trae deadband, el stack (`MonitoredItem.ValueChanged`) vuelve el trigger a
+`StatusValue` en silencio. Lo pide el **cliente**, no se configura en el gateway: el
+stack lo soporta. Antes de prometerlo hay que
+verificar si el conector de PI que se use permite elegir el trigger; si no lo
+permite, la alternativa es leer por polling (servicio Read) en vez de suscribirse.
+Dos costos a tener en cuenta: con `StatusValueTimestamp`, cada escritura de la
+aplicación de origen es un evento en PI aunque el valor no cambie (más volumen,
+aunque la compresión de PI lo absorbe), y en un tag DA el `SourceTimestamp` avanza
+en cada lectura del servidor DA, así que el trigger convierte cada ciclo en un
+evento.
+
 ## Ruido conocido — no perseguir
 
 Errores que aparecen en la consola durante operación normal y **no** indican una

@@ -120,6 +120,20 @@ que le es propia, con el campo `condition`:
 | `NullValue` | `V = NULL` |
 | `NullQuality` | `Q = NULL` |
 
+Las condiciones no aparecen solas: cada una está declarada a propósito en un tag
+del catálogo.
+
+- **`PLANTA_01_MEDICION_PRESION_SALIDA` sale en `Q = 216` siempre que su grupo
+  esté sano** (`condition: "LocalOverride"`, `overrideValue: 9.0`). No es un error
+  del catálogo: es el único tag que representa el código 216 de R7 (un operador
+  forzó el valor), y por eso en UA se ve en `GoodLocalOverride` con `V` fijo en 9 y
+  no siguiendo el seno. Sirve para verificar dos cosas: que el mapeo distingue el
+  substatus y no solo el `Good` (V2-19), y que la marca de vínculo caído también
+  alcanza a un `Good` con substatus (V2-32, medido el 02/10/2026).
+- `PLANTA_02_MEDICION_DENSIDAD` lleva `Uncertain` (el código 64).
+- `PRUEBA_NULO_VALOR` y `PRUEBA_NULO_CALIDAD` llevan los dos casos `NULL` (ver más
+  abajo).
+
 **El estado del grupo tiene precedencia sobre la condición del tag.** Si el campo
 de un grupo se cortó, sus tags reportan esa falla y su condición propia no se
 aplica: si no hay comunicación, no hay nada que reportar sobre el tag. Es una

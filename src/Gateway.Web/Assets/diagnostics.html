@@ -107,6 +107,10 @@
 </section>
 
 <script>
+// Un contador con su frase concordada: "1 dejaron de responder" es lo primero
+// que se ve en una fuente con un solo tag mudo.
+const cnt = (k, uno, varios) => `<span class="num">${k}</span> ${k === 1 ? uno : varios}`;
+
 // Cada diagnostico se traduce a una frase con los contadores que lo generaron
 // al lado: un nombre de enum solo no le dice nada a quien mira la pantalla, y
 // un numero sin su interpretacion tampoco. La segunda linea, cuando existe, es
@@ -116,9 +120,12 @@ function verdict(s) {
   const c = s.counters, l = s.link;
   const n = c.silentNeverAnswered, p = c.silentPreviouslyAnswered, t = c.totalConfigured;
   const src = SOURCE_ES[l.source] ?? l.source;
+  const deT = `de ${cnt(t, "tag", "tags")}`;
   switch (s.diagnosis) {
     case "Healthy":
-      return [`Los <span class="num">${c.good}</span> de <span class="num">${t}</span> tags de esta fuente responden con calidad buena.`, ""];
+      return [t === 1
+        ? "El único tag de esta fuente responde con calidad buena."
+        : `Los <span class="num">${c.good}</span> de <span class="num">${t}</span> tags de esta fuente responden con calidad buena.`, ""];
     case "LinkDown":
       return [`Sin vínculo con ${src}. Reintentos: <span class="num">${l.reconnectAttempts}</span>.`,
               l.lastError ? `Último error: ${l.lastError}` : `Verificá que ${src} esté corriendo.`];
@@ -126,16 +133,16 @@ function verdict(s) {
       return [`El vínculo está abierto pero el ciclo no vuelve hace <span class="num">${(s.secondsSinceLastCycle ?? 0).toFixed(0)}</span> s.`,
               `${src} no murió: dejó de contestar. Suele requerir reiniciarlo.`];
     case "LikelyCsvMismatch":
-      return [`<span class="num">${n}</span> de <span class="num">${t}</span> tags nunca entregaron un dato desde que arrancó el gateway.`,
+      return [`${cnt(n, `${deT} nunca entregó`, `${deT} nunca entregaron`)} un dato desde que arrancó el gateway.`,
               "Esos nombres no existen del otro lado: revisá el CSV de mapeo o que la fuente tenga su configuración cargada. Desde adentro del gateway las dos causas son indistinguibles."];
     case "ServerRepopulatedEmpty":
-      return [`<span class="num">${p}</span> tags que antes respondían dejaron de hacerlo.`,
+      return [`${cnt(p, "tag que antes respondía dejó de hacerlo", "tags que antes respondían dejaron de hacerlo")}.`,
               `${src} sigue en pie pero perdió sus items: el caso del simulador relanzado sin su configuración.`];
     case "PartialDegradation":
-      return [`<span class="num">${c.silentTotal}</span> de <span class="num">${t}</span> tags mudos; el resto responde bien.`,
+      return [`${cnt(c.silentTotal, `${deT} está mudo`, `${deT} están mudos`)}; el resto responde bien.`,
               "Son una minoría: no hay una causa global. Mirá cuáles en la vista Detalle."];
     case "Indeterminate":
-      return [`<span class="num">${n}</span> nunca respondieron y <span class="num">${p}</span> dejaron de responder.`,
+      return [`${cnt(n, "tag nunca respondió", "tags nunca respondieron")} y ${cnt(p, "dejó de responder", "dejaron de responder")}.`,
               "Están pasando dos cosas a la vez; el gateway no elige una por vos."];
     default:
       return [s.diagnosis, ""];

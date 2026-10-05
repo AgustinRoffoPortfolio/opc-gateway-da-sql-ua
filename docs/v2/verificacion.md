@@ -103,6 +103,16 @@ cambiaron `DENSIDAD` (`Uncertain` por `Q`), `PRUEBA.NULO_VALOR` y `PRUEBA.NULO_C
 calidad de su `Q` (`Good`, `GoodLocalOverride`). Los 10 tags DA estuvieron en `Good`
 con `SourceTimestamp` avanzando en todos los sondeos de la corrida, sin excepción.
 
+> **Nota posterior (V2-35).** Al momento de esta medición, `PRUEBA.NULO_CALIDAD` salía
+> en `UncertainLastUsableValue`. Desde V2-35, `Q` en `NULL` se publica como `Uncertain`
+> sin substatus (`0x40000000`); `PRUEBA.NULO_VALOR` sigue en `UncertainLastUsableValue`.
+> La marca de V2-32 tampoco lo cambia ahora: solo degrada tags en `Good`. Con
+> `demo-mixto` y el vínculo sano, la tarjeta SQL de la pestaña Operador pasa de
+> `Indeterminate` ("2 tags nunca respondieron y 1 dejó de responder.") a
+> `LikelyCsvMismatch`: "2 de 11 tags nunca entregaron un dato desde que arrancó el
+> gateway." Los dos son `PRUEBA.TAG_AUSENTE` y `PRUEBA.NULO_VALOR`; la indicación de
+> revisar el CSV es cierta para el primero y no para el segundo (pendiente de V2-35).
+
 **Segundo corte.** El log dice "Sigue caido" y no "Se corto" (el bug conocido de
 `faultLogged`, no se arregla), y la marca se aplicó igual. Es lo que V2-32 previó al
 no atarla a esa bandera.

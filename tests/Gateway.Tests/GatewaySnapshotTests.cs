@@ -141,6 +141,31 @@ public class GatewaySnapshotTests
         Assert.Equal(Diagnosis.Indeterminate, Diag(snapshot));
     }
 
+    /// V2-35: Q en NULL trae medicion fresca y sale Uncertain sin substatus, que
+    /// no es mudo. LastUsableValue si lo es: lo ponen la antiguedad, la marca de
+    /// fuente caida (V2-32) o la propia fuente, y en todos esos casos el valor
+    /// ya no se refresca.
+    [Fact]
+    public void UncertainGenericoSql_NoCuentaComoMudo_LastUsableValueSi()
+    {
+        var cache = new TagCache([
+            new TagDefinition("TAGS.Q_NULA", TagSource.Sql, "Q_NULA", TagDataType.Float, 1.0, 0.0, StaleAfter: null),
+            new TagDefinition("TAGS.ULTIMO_UTIL", TagSource.Sql, "ULTIMO_UTIL", TagDataType.Float, 1.0, 0.0, StaleAfter: null)]);
+        cache.Update(TagSource.Sql, new Dictionary<string, TagSample>
+        {
+            ["Q_NULA"] = new TagSample(2.0f, TagQuality.QualityNull, T1),
+            ["ULTIMO_UTIL"] = new TagSample(3.0f, TagQuality.LastUsableValue, T1)
+        });
+        var link = new SourceLinkStatus(TagSource.Sql, LinkState.Connected, T1, 0, null, 10, 0, 1, 0, 5.0, 5.0, 9.0, 30000, T1);
+
+        var snapshot = GatewaySnapshot.Build(cache, [link], Ua(), T1, UaAuditSnapshot.Empty);
+
+        var counters = snapshot.Sources.Single().Counters;
+        Assert.Equal(2, counters.Uncertain);
+        Assert.Equal(1, counters.SilentPreviouslyAnswered);
+        Assert.Equal(0, counters.SilentNeverAnswered);
+    }
+
     /// El vinculo manda sobre los contadores: sin nadie del otro lado no tiene
     /// sentido preguntarse por el CSV.
     [Fact]

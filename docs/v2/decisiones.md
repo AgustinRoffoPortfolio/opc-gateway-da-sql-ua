@@ -787,3 +787,15 @@ como anomalía, igual que un `V` o un `Q` nulos (V2-16), y esta decisión se rev
 **Por qué.** El propio dueño del dato considera que el riesgo es bajo: los nombres son genéricos y no exponen nada, y el cambio es una preferencia, no una exigencia (P13). Reescribir el historial rompería los hashes de commit que los documentos citan como evidencia (`verificacion.md`, esta misma página), y esas referencias valen más que ocultar dos identificadores de bajo riesgo.
 
 **Costo.** Los nombres reales siguen visibles en el historial de commits anteriores a este cambio. Además, el paquete de la POC ya no trae la tabla real en `appsettings.json`: quien lo despliegue contra TEST tiene que fijar `Sql:Table` (y `Sql:Database`) en su `appsettings.Local.json`.
+
+---
+
+### V2-35 — `Q` en `NULL` se publica como `Uncertain` sin substatus
+
+**Decisión.** Una fila con `Q` en `NULL` se publica como `Uncertain` sin substatus (`QualitySubstatus.Uncertain`, `0x40000000` en UA), con la calidad `TagQuality.QualityNull`, y ya no como `Uncertain` *last usable value*. `V` en `NULL` queda como está: sigue en `UncertainLastUsableValue`, conservando el último valor y su `SourceTimestamp` (V2-16). El resto de V2-16 no cambia: las dos columnas nulas siguen siendo `Uncertain` y nunca `Bad`.
+
+**Por qué.** V2-16 dice que con `Q` en `NULL` hay medición, y que el valor y el `SourceTimestamp` se actualizan normalmente. *Last usable value* le afirma al cliente UA lo contrario: que el valor que ve es el último útil y ya no se refresca. Además, el snapshot de diagnóstico cuenta como mudo a todo tag en ese substatus (`GatewaySnapshot.cs:267`), así que un tag que entregaba dato en cada ciclo aparecía en la pestaña Operador como uno que "dejó de responder" (con `demo-mixto`, `PRUEBA.NULO_CALIDAD`). La señal de mudo del snapshot es correcta para los demás productores de ese substatus —la degradación por antigüedad de DA (V2-11), la marca de fuente caída (V2-32) y el código 68 que mande la propia fuente— y no se toca: el error estaba en usar ese substatus para un caso que no lo es.
+
+**Pendiente: hora inexistente.** Un `TS` que cae en la hora que se saltea al adelantar el reloj tiene el mismo defecto: `MapTimestamp` degrada con `Downgrade`, que da `UncertainLastUsableValue` aunque el valor sea fresco. Queda fuera porque `Downgrade` es compartido con `V` en `NULL`, donde ese substatus sí es correcto, y porque con la zona por defecto (Argentina, sin horario de verano) el caso no ocurre.
+
+**Pendiente: `V` en `NULL` permanente sin valor previo.** Un tag con `V` en `NULL` desde el arranque nunca tuvo valor, así que el snapshot lo cuenta como mudo que nunca respondió (`NeverAnswered`). Junto a un tag ausente de la tabla, el veredicto pasa a `LikelyCsvMismatch` y manda a revisar el CSV aunque la fila exista y el origen la esté escribiendo (V2-21). Resolverlo exige una categoría nueva en el snapshot. Queda fuera por alcance, porque el proyecto está en la fase de cierre, y porque contra la tabla real es un caso improbable: según el relevamiento de R7, los dos casos `NULL` no existen en producción (`simulador.md`).

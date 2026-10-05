@@ -124,13 +124,14 @@ public sealed class SqlTagMapper
 
     /// Q en NULL: hay medicion pero no hay codigo de calidad que mapear. Es una
     /// duda, no una certeza de error, asi que Uncertain y no Bad (principio 3,
-    /// V2-16). El valor y el timestamp se actualizan normalmente.
+    /// V2-16). El valor y el timestamp se actualizan normalmente, por eso sale
+    /// Uncertain sin substatus y no LastUsableValue (V2-35).
     private static TagQuality MapQuality(short? code, ref int nullCount, ref int unknownCount)
     {
         if (code is null)
         {
             nullCount++;
-            return TagQuality.LastUsableValue;
+            return TagQuality.QualityNull;
         }
 
         var quality = TagQuality.FromDaCode(code.Value, out var unknownSubstatus);

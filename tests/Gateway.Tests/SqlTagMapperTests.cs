@@ -65,11 +65,14 @@ public class SqlTagMapperTests
     {
         // V2-16. Hay medicion pero no hay codigo de calidad que mapear: el
         // valor y el timestamp se actualizan normales, solo la calidad duda.
+        // V2-35: sin substatus, porque LastUsableValue afirmaria que el valor
+        // ya no se refresca.
         var result = Mapper().Map([Row(q: null)]);
 
         var sample = result.Samples["TIC101.PV"];
         Assert.Equal(5.0f, sample.Value);
-        Assert.Equal(TagQuality.LastUsableValue, sample.Quality);
+        Assert.Equal(TagQuality.QualityNull, sample.Quality);
+        Assert.Equal(QualitySubstatus.Uncertain, sample.Quality.Substatus);
         Assert.Equal(1, result.NullQualityCount);
     }
 

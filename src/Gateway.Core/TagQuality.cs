@@ -95,6 +95,13 @@ public readonly record struct TagQuality(
     public static readonly TagQuality LastUsableValue =
         new(QualityMaster.Uncertain, QualitySubstatus.UncertainLastUsableValue, QualityLimit.NotLimited);
 
+    /// La columna Q de la tabla SQL vino en NULL: hay medicion fresca pero no
+    /// hay codigo de calidad que mapear. Uncertain sin substatus y no
+    /// LastUsableValue (V2-35): ese substatus le diria al cliente que el valor
+    /// ya no se refresca, y aca se refresca en cada ciclo.
+    public static readonly TagQuality QualityNull =
+        new(QualityMaster.Uncertain, QualitySubstatus.Uncertain, QualityLimit.NotLimited);
+
     /// <summary>
     /// Descompone un codigo de calidad OPC DA crudo (la columna Q de la tabla
     /// SQL) en los tres campos. El driver DA no la usa: el SDK ya le entrega la

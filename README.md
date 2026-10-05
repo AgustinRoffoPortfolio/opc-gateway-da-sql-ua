@@ -14,9 +14,13 @@ tabla de SQL Server que escribe otra aplicación, sin tocar ninguna de las dos.
 
 ## Demo
 
-> **[PENDIENTE — video y capturas de la v2]** Acá van el video de DA y SQL
-> conviviendo en UaExpert, el corte de la base y las capturas de la página de
-> diagnóstico. Todavía no están en el repositorio.
+Corte de la base con las dos fuentes conviviendo (20 s, sin audio). Se apaga
+SQL Server: los tags SQL pasan a `Uncertain` *last usable value* con el mismo
+valor y `SourceTimestamp`, mientras los DA siguen en `Good` con la hora
+corriendo. Al volver la base, el driver se reconecta solo y los SQL vuelven a
+`Good`. Se reproduce embebido solo desde github.com:
+
+https://github.com/user-attachments/assets/69e591fb-9e74-496e-a296-98ca58c18286
 
 El video de la v1 (solo la fuente DA, 500 tags, 35 s, sin audio) sigue
 disponible; se reproduce embebido solo desde github.com:
@@ -204,10 +208,10 @@ contra su README. Salieron tres cosas:
 
 ## Estado
 
-Fuente SQL implementada y verificada. Hoy: **193 tests**, 188 correctos y 5 de
+Fuente SQL implementada y verificada. Hoy: **196 tests**, 191 correctos y 5 de
 integración contra SQL Server que se omiten sin credenciales de prueba; con
 `GATEWAY_SQL_TEST_USER` y `GATEWAY_SQL_TEST_PASSWORD` y el contenedor arriba,
-193 de 193. Las mediciones de la v2 están en
+196 de 196. Las mediciones de la v2 están en
 [`docs/v2/verificacion.md`](docs/v2/verificacion.md); las de la v1 (carga, soak,
 latencias) en [`docs/verificacion.md`](docs/verificacion.md) y no se repitieron
 para la v2.

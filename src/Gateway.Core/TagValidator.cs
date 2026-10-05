@@ -82,8 +82,10 @@ public static class TagValidator
             // no error, a diferencia del DATA_TYPE de arriba.
             if (row.Tag.Source == TagSource.Sql && (row.Tag.ScanRateMs != 0 || row.Tag.Deadband != 0))
             {
-                warnings.Add(
-                    $"linea {row.LineNumber}: '{row.Tag.OpcUaName}' es SOURCE=SQL con SCAN_RATE_MS={row.Tag.ScanRateMs} y DEADBAND={row.Tag.Deadband}; " +
+                // Invariante: el CSV escribe el DEADBAND con punto, y el aviso
+                // tiene que mostrarlo igual que en el archivo.
+                warnings.Add(FormattableString.Invariant(
+                    $"linea {row.LineNumber}: '{row.Tag.OpcUaName}' es SOURCE=SQL con SCAN_RATE_MS={row.Tag.ScanRateMs} y DEADBAND={row.Tag.Deadband}; ") +
                     "el driver SQL los ignora, revisar si se copiaron de una fila DA por error.");
             }
 

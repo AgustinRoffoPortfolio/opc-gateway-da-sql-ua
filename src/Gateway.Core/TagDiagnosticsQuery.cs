@@ -106,6 +106,8 @@ public static class TagDiagnosticsQuery
         double d => d.ToString("R", CultureInfo.InvariantCulture),
         int i => i.ToString(CultureInfo.InvariantCulture),
         bool b => b ? "true" : "false",
-        _ => value.ToString()
+        // Invariante tambien aca: el float de los tags SQL (V2-14) caia en este
+        // caso y salia con la coma de es-AR.
+        _ => Convert.ToString(value, CultureInfo.InvariantCulture)
     };
 }

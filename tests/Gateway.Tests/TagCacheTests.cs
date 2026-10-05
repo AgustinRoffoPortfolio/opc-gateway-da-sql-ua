@@ -198,6 +198,19 @@ public class TagCacheTests
     }
 
     [Fact]
+    public void StringDesdeNumero_SeFormateaConPuntoAunqueLaCulturaSeaEsAr()
+    {
+        // Un item DA numerico declarado String en el CSV se publica por OPC UA
+        // como texto: con la cultura de la maquina saldria "8009,57".
+        var cache = CacheWith(Def(TagDataType.String));
+
+        using var _ = new CultureScope("es-AR");
+        cache.Update(TagSource.OpcDa, Sample(8009.57, TagQuality.Good, T1));
+
+        Assert.Equal("8009.57", cache.Get("PLANTA_01.MEDICION.PRESION_ENTRADA").ScaledValue);
+    }
+
+    [Fact]
     public void Int32_RedondeaEnVezDeTruncar()
     {
         var cache = CacheWith(Def(TagDataType.Int32, multiplier: 1.0, offset: 0.6));

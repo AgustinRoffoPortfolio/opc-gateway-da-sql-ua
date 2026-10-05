@@ -346,7 +346,9 @@ public sealed class TagCache
         switch (definition.DataType)
         {
             case TagDataType.String:
-                scaled = raw.ToString();
+                // Un numero declarado String se publica como texto por UA: con
+                // la cultura de la maquina saldria con coma.
+                scaled = Convert.ToString(raw, System.Globalization.CultureInfo.InvariantCulture);
                 return true;
 
             case TagDataType.Boolean:

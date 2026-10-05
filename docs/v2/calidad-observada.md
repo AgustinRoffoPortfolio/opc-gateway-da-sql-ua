@@ -1,4 +1,4 @@
-# Calidad observada en `CURR_DATA` (R7)
+# Calidad observada en `CURRENT_VALUES` (R7)
 
 R7 dice que la columna `Q` trae códigos de calidad OPC DA y que 192 es buena. Eso
 no alcanzaba para construir el simulador: el enum de la v1 tiene 16 substatus y
@@ -10,10 +10,12 @@ Consulta contra la tabla real, corrida por mi padre el 12/09/2026:
 
 ```sql
 SELECT Q, COUNT(*) AS Filas
-FROM [SCADA_HST].[dbo].[CURR_DATA] WITH (NOLOCK)
+FROM [PLANT_DB].[dbo].[CURRENT_VALUES] WITH (NOLOCK)
 GROUP BY Q
 ORDER BY Filas DESC
 ```
+
+> Los nombres de base y tabla de esta cita se reemplazaron por genéricos (`PLANT_DB`, `CURRENT_VALUES`) a pedido del dueño del dato (P13). Columnas, tipos y opciones son los originales.
 
 ## Resultado
 

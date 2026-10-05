@@ -1,6 +1,6 @@
 namespace Gateway.Sql;
 
-/// Una fila de CURR_DATA tal como viene de la base, sin interpretar.
+/// Una fila de CURRENT_VALUES tal como viene de la base, sin interpretar.
 ///
 /// Por que existe un tipo intermedio y ReadAll no devuelve TagSample directo:
 /// separa la mitad que necesita la base (ejecutar la consulta) de la mitad que

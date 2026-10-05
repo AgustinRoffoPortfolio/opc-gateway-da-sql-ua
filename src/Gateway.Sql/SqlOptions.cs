@@ -15,9 +15,9 @@ public class SqlOptions
     /// identificadores antes de concatenarse (V2-9): un nombre de tabla no
     /// puede ir como parametro de ADO.NET, asi que lo que se controla no es
     /// como se pega sino que se acepta.
-    public string Database { get; set; } = "SCADA_HST";
+    public string Database { get; set; } = "PLANT_DB";
     public string Schema { get; set; } = "dbo";
-    public string Table { get; set; } = "CURR_DATA";
+    public string Table { get; set; } = "CURRENT_VALUES";
 
     /// Credenciales de SQL Server (P8). Vacias a proposito en el JSON
     /// versionado: los valores reales llegan por appsettings.Local.json o por

@@ -4,7 +4,7 @@ namespace Gateway.Tests;
 
 /// <summary>
 /// Verifica la decodificacion de un codigo de calidad DA crudo (la columna Q de
-/// CURR_DATA) a TagQuality. Es el paso anterior a QualityMapper: aquel traduce
+/// CURRENT_VALUES) a TagQuality. Es el paso anterior a QualityMapper: aquel traduce
 /// TagQuality -> StatusCode UA, este arma el TagQuality desde el entero.
 /// </summary>
 public class TagQualityTests

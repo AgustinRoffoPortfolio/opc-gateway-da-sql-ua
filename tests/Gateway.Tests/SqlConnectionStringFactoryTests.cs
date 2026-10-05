@@ -81,11 +81,11 @@ public class SqlConnectionStringFactoryTests
     public void BaseDeDatos_VaEnInitialCatalog()
     {
         var options = ConfigValida();
-        options.Database = "SCADA_HST";
+        options.Database = "PLANT_DB";
 
         var cadena = SqlConnectionStringFactory.Build(options);
         var releida = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(cadena);
 
-        Assert.Equal("SCADA_HST", releida.InitialCatalog);
+        Assert.Equal("PLANT_DB", releida.InitialCatalog);
     }
 }

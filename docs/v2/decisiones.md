@@ -144,9 +144,9 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 "Sql": {
   "Host": "127.0.0.1",
   "Port": 1433,
-  "Database": "SCADA_HST",
+  "Database": "PLANT_DB",
   "Schema": "dbo",
-  "Table": "CURR_DATA",
+  "Table": "CURRENT_VALUES",
   "User": "",
   "Password": "",
   "PollingIntervalSeconds": 30,
@@ -239,7 +239,7 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 
 **Consecuencia sobre R6.** El requisito pide que la tabla sea configurable, y lo sigue siendo: cualquier identificador legítimo de SQL Server pasa. Lo que queda afuera son nombres con espacios, puntos o caracteres raros, que en esta tabla no existen. Si alguna vez aparece uno, se amplía la lista blanca como decisión nueva, no aflojando la validación en el momento.
 
-**Cierra el pendiente de V2-6** sobre cómo armar `[SCADA_HST].[dbo].[CURR_DATA]` desde tres claves sueltas.
+**Cierra el pendiente de V2-6** sobre cómo armar `[PLANT_DB].[dbo].[CURRENT_VALUES]` desde tres claves sueltas.
 
 ---
 
@@ -287,7 +287,7 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 
 **Decisión.** La clave del índice de definiciones deja de ser el nombre de origen a secas y pasa a ser el par (origen, `SOURCE_TAG`). `Update` recibe, además del lote de muestras, de qué fuente viene, y cruza solo contra las definiciones de esa fuente. Los miembros que exponen el nombre de origen se renombran: `DaNames` pasa a pedir la fuente y devolver los nombres de esa fuente; `GetDaName` pasa a devolver el nombre de origen sin importar cuál sea. Se mantiene un único índice con clave compuesta, no dos diccionarios ni dos caches.
 
-**El problema.** Hoy `_definitionsByDaName` agrupa por `OpcDaName` y `Update` cruza las muestras contra esa clave. Con dos fuentes eso rompe de dos maneras distintas. La primera es una colisión: los dos orígenes vienen del mismo mundo y es razonable que un tag DA y una fila de `CURR_DATA` se llamen igual, y en ese caso las muestras de una fuente actualizarían los nodos UA de la otra sin que nada lo reporte. La segunda apareció al medir el costo del cambio y es peor, porque no depende de que haya nombres repetidos: `DaAcquisitionService` le pide a la cache `DaNames` para dar de alta los items contra el servidor DA. Si esa lista incluye los nombres SQL, el servidor DA los rechaza y quedan reintentándose cada `ItemRetryIntervalMs` para siempre, ensuciando el log y castigando al servidor legado con altas que nunca van a funcionar.
+**El problema.** Hoy `_definitionsByDaName` agrupa por `OpcDaName` y `Update` cruza las muestras contra esa clave. Con dos fuentes eso rompe de dos maneras distintas. La primera es una colisión: los dos orígenes vienen del mismo mundo y es razonable que un tag DA y una fila de `CURRENT_VALUES` se llamen igual, y en ese caso las muestras de una fuente actualizarían los nodos UA de la otra sin que nada lo reporte. La segunda apareció al medir el costo del cambio y es peor, porque no depende de que haya nombres repetidos: `DaAcquisitionService` le pide a la cache `DaNames` para dar de alta los items contra el servidor DA. Si esa lista incluye los nombres SQL, el servidor DA los rechaza y quedan reintentándose cada `ItemRetryIntervalMs` para siempre, ensuciando el log y castigando al servidor legado con altas que nunca van a funcionar.
 
 **Por qué clave compuesta y no dos diccionarios ni dos caches.** Dos diccionarios adentro de la cache duplican estructura y obligan a tocar cada lugar que recorre el índice, sin ganar nada sobre la clave compuesta. Dos instancias de `TagCache`, una por fuente, es la alternativa más invasiva: rompe que la cache sea la frontera única entre adquisición y publicación, y obliga a `Program.cs`, al node manager y a la página de diagnóstico a preguntarle a dos objetos en vez de a uno. La clave compuesta deja la estructura como está, concentra el cambio en un archivo y no cierra la puerta a una tercera fuente, aunque eso esté fuera de alcance.
 
@@ -533,7 +533,7 @@ antigüedad del dato no dice nada sobre su validez. El simulador reproduce ese
 comportamiento a propósito: al cortar un grupo, congela `V`, pone `Q` en 20 y deja
 que `TS` siga refrescándose.
 
-**Por qué es así.** La aplicación que escribe `CURR_DATA` sigue viva y sigue
+**Por qué es así.** La aplicación que escribe `CURRENT_VALUES` sigue viva y sigue
 pisando la fila; lo que se cayó es el campo, un nivel más abajo. Congelar también
 el `TS` sería simular que la aplicación murió, que es otra falla distinta y que se
 detecta de otra manera. P6 es explícito: la pérdida de campo se marca en la calidad.
@@ -777,3 +777,13 @@ sin refrescar: quedan en `Uncertain` *last usable value* (V2-32), el diagnóstic
 base esté sana. Se diagnostica por el mensaje de la excepción, no por el nombre del
 estado. Si se diera contra el servidor real, la salida es saltear la fila y contarla
 como anomalía, igual que un `V` o un `Q` nulos (V2-16), y esta decisión se revisa.
+
+---
+
+### V2-34 — Los nombres de base y tabla se reemplazan por genéricos solo hacia adelante
+
+**Decisión.** La base y la tabla de origen pasan a llamarse `PLANT_DB` y `CURRENT_VALUES` en todo el repositorio: código, valores por defecto de `SqlOptions`, `appsettings.json`, tests, script del simulador y documentación. El esquema `dbo` y las columnas `TAG`, `TS`, `V` y `Q` no cambian. El historial de git no se reescribe. Los nombres reales quedan solo en la configuración local de cada instalación (P13).
+
+**Por qué.** El propio dueño del dato considera que el riesgo es bajo: los nombres son genéricos y no exponen nada, y el cambio es una preferencia, no una exigencia (P13). Reescribir el historial rompería los hashes de commit que los documentos citan como evidencia (`verificacion.md`, esta misma página), y esas referencias valen más que ocultar dos identificadores de bajo riesgo.
+
+**Costo.** Los nombres reales siguen visibles en el historial de commits anteriores a este cambio. Además, el paquete de la POC ya no trae la tabla real en `appsettings.json`: quien lo despliegue contra TEST tiene que fijar `Sql:Table` (y `Sql:Database`) en su `appsettings.Local.json`.

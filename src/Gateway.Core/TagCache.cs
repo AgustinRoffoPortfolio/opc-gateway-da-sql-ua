@@ -304,7 +304,7 @@ public sealed class TagCache
             return new TagState(previous.ScaledValue, sample.Quality, previous.SourceTimestamp, now);
 
         // Muestra con calidad utilizable pero sin valor: es la columna V en
-        // NULL de CURR_DATA (V2-16). Hay fila, pero no hay medicion que fechar.
+        // NULL de CURRENT_VALUES (V2-16). Hay fila, pero no hay medicion que fechar.
         // Se conserva el valor anterior con su SourceTimestamp -que no avanza
         // aunque TS haya cambiado, porque avanzarlo afirmaria una medicion que
         // no existe- y solo se toca la calidad. Sin esta rama el nulo caeria en

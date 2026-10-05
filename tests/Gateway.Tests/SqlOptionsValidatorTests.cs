@@ -54,7 +54,7 @@ public class SqlOptionsValidatorTests
     public void NombreDeTablaInvalido_EsError()
     {
         var options = ConfigValida();
-        options.Table = "CURR_DATA; DROP TABLE USUARIOS";
+        options.Table = "CURRENT_VALUES; DROP TABLE USUARIOS";
 
         var result = SqlOptionsValidator.Validate(options);
 

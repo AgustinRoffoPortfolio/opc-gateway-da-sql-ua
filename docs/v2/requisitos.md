@@ -27,8 +27,10 @@ SELECT [TAG]
       ,[TS]
       ,[V]
       ,[Q]
-  FROM [SCADA_HST].[dbo].[CURR_DATA] WITH (NOLOCK)
+  FROM [PLANT_DB].[dbo].[CURRENT_VALUES] WITH (NOLOCK)
 ```
+
+> Los nombres de base y tabla de esta cita se reemplazaron por genéricos (`PLANT_DB`, `CURRENT_VALUES`) a pedido del dueño del dato (P13). Columnas, tipos y opciones son los originales.
 
 - **Sin `WHERE`.** El filtrado a los tags configurados se hace en el gateway, no en el servidor SQL, para no cargarlo con una cláusula de miles de términos.
 - **Con `WITH (NOLOCK)`.** Evita bloqueos mientras otras aplicaciones actualizan la tabla.
@@ -50,9 +52,9 @@ El intervalo de interrogación a la base se configura en segundos. El rango de t
 |---|---|
 | IP del servidor SQL | — |
 | Puerto | `1433` (opcional) |
-| Nombre de la base | `SCADA_HST` |
+| Nombre de la base | `PLANT_DB` |
 | Esquema (owner) | `dbo` |
-| Nombre de la tabla | `CURR_DATA` |
+| Nombre de la tabla | `CURRENT_VALUES` |
 | Intervalo de polling (s) | 20–60 |
 | Intervalo de reconexión (s) | 10–30 |
 | Columna del nombre de tag | `TAG` |
@@ -83,17 +85,19 @@ La tabla no la define el gateway: existe en un sistema en producción y otra apl
 ### Esquema de la tabla (P1)
 
 ```sql
-CREATE TABLE [dbo].[CURR_DATA](
+CREATE TABLE [dbo].[CURRENT_VALUES](
 	[TAG] [varchar](50) NOT NULL,
 	[TS] [datetime] NOT NULL,
 	[V] [real] NULL,
 	[Q] [smallint] NULL,
- CONSTRAINT [PK_CURR_DATA] PRIMARY KEY CLUSTERED
+ CONSTRAINT [PK_CURRENT_VALUES] PRIMARY KEY CLUSTERED
 (
 	[TAG] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 ```
+
+> Los nombres de base y tabla de esta cita se reemplazaron por genéricos (`PLANT_DB`, `CURRENT_VALUES`) a pedido del dueño del dato (P13). Columnas, tipos y opciones son los originales.
 
 | Columna | Tipo | Nulo | Implicancias |
 |---|---|---|---|
@@ -135,7 +139,7 @@ CREATE TABLE [dbo].[CURR_DATA](
 
 ### P13. Nombres reales en un repositorio público
 
-Pendiente de confirmación: si `SCADA_HST` y `CURR_DATA` pueden quedar expuestos al publicar, o si deben reemplazarse por nombres genéricos. Mientras el repositorio sea privado se usan tal cual.
+Resuelto (05/10/2026). El dueño del dato considera que los nombres de base y tabla son bastante genéricos y no exponen nada, pero prefiere que se cambien si es posible. El repositorio usa desde entonces `PLANT_DB` para la base y `CURRENT_VALUES` para la tabla; el esquema (`dbo`) y las columnas (`TAG`, `TS`, `V`, `Q`) no cambian. Los nombres reales van solo en la configuración local de cada instalación (`appsettings.Local.json`, V2-26), nunca en el repositorio. El renombre es solo hacia adelante (V2-34).
 
 ---
 

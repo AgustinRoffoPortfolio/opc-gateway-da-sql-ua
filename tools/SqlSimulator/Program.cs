@@ -2,7 +2,7 @@
 using System.Text.Json.Serialization;
 using Microsoft.Data.SqlClient;
 
-// Simulador de la tabla CURR_DATA. Siembra una fila por tag y despues las
+// Simulador de la tabla CURRENT_VALUES. Siembra una fila por tag y despues las
 // actualiza al ritmo del grupo de scan de cada uno (P7). El valor sale de un
 // modelo determinista, nunca de un numero al azar.
 //
@@ -297,7 +297,7 @@ static SqlCommand BuildMergeCommand(SqlConnection connection)
 {
     var command = new SqlCommand(
         """
-        MERGE dbo.CURR_DATA AS target
+        MERGE dbo.CURRENT_VALUES AS target
         USING (SELECT @tag AS TAG) AS source
         ON target.TAG = source.TAG
         WHEN MATCHED THEN

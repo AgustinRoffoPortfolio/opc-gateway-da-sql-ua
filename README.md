@@ -69,8 +69,8 @@ MatrikonOPC Server for Simulation and Testing.
 
    ```powershell
    docker compose up -d
-   docker cp .\tools\SqlSimulator\schema\01-create-curr-data.sql gateway-sql:/tmp/
-   docker exec -it gateway-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -i /tmp/01-create-curr-data.sql
+   docker cp .\tools\SqlSimulator\schema\01-create-current-values.sql gateway-sql:/tmp/
+   docker exec -it gateway-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -i /tmp/01-create-current-values.sql
    ```
 
 3. **Credenciales del gateway.** Copiar
@@ -82,7 +82,7 @@ MatrikonOPC Server for Simulation and Testing.
 
    ```powershell
    $pw = Read-Host "Password de sa" -AsSecureString
-   $env:SQLSIM_CONNSTR = "Server=127.0.0.1,1433;Database=SCADA_HST;User ID=sa;Password=$([System.Net.NetworkCredential]::new('', $pw).Password);Encrypt=True;TrustServerCertificate=True;Connect Timeout=5"
+   $env:SQLSIM_CONNSTR = "Server=127.0.0.1,1433;Database=PLANT_DB;User ID=sa;Password=$([System.Net.NetworkCredential]::new('', $pw).Password);Encrypt=True;TrustServerCertificate=True;Connect Timeout=5"
    dotnet run --project tools\SqlSimulator
    ```
 

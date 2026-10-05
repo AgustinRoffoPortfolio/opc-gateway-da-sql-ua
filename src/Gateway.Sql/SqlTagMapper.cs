@@ -41,7 +41,7 @@ public enum SqlRowAnomaly
     InvalidTimestamp = 8
 }
 
-/// Convierte filas crudas de CURR_DATA en muestras del gateway.
+/// Convierte filas crudas de CURRENT_VALUES en muestras del gateway.
 ///
 /// Funcion pura con estado de solo lectura: no abre conexiones, no loguea y no
 /// conoce las definiciones del CSV. El filtrado a los tags declarados (R3) lo

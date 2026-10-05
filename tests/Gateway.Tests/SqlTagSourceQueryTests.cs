@@ -21,7 +21,7 @@ public class SqlTagSourceQueryTests
         var source = new SqlTagSource(ConfigValida());
 
         Assert.Equal(
-            "SELECT [TAG], [TS], [V], [Q] FROM [SCADA_HST].[dbo].[CURR_DATA] WITH (NOLOCK)",
+            "SELECT [TAG], [TS], [V], [Q] FROM [PLANT_DB].[dbo].[CURRENT_VALUES] WITH (NOLOCK)",
             source.Query);
     }
 
@@ -37,7 +37,7 @@ public class SqlTagSourceQueryTests
         var source = new SqlTagSource(options);
 
         Assert.Equal(
-            "SELECT [NOMBRE], [FECHA], [VALOR], [CALIDAD] FROM [SCADA_HST].[dbo].[CURR_DATA] WITH (NOLOCK)",
+            "SELECT [NOMBRE], [FECHA], [VALOR], [CALIDAD] FROM [PLANT_DB].[dbo].[CURRENT_VALUES] WITH (NOLOCK)",
             source.Query);
     }
 

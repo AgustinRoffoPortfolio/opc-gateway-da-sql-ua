@@ -39,11 +39,11 @@ atan el gateway a Windows (`Da`, `Ua`, `Web`, `Host`, `Tests`) y cuáles no
 ### El driver conecta y trae filas
 
 Verificación del paso: `SqlTagSource` conecta contra el SQL Server del
-contenedor y lee filas de `CURR_DATA`. Cinco tests de integración en verde,
+contenedor y lee filas de `CURRENT_VALUES`. Cinco tests de integración en verde,
 con la base levantada y el simulador habiendo corrido antes.
 
 Los tests **no escriben** en la tabla: leen lo que dejó el simulador, que es
-la situación real donde `CURR_DATA` la escribe otra aplicación.
+la situación real donde `CURRENT_VALUES` la escribe otra aplicación.
 
 **Cómo se corren:**
 
@@ -71,7 +71,7 @@ sin ellas se omite. La misma pieza que protege el secreto hace el salteo.
 
 Los tres se cerraron en el paso 5, más abajo: la reconexión (R5) y el timeout
 de consulta se provocaron cortando el contenedor, y el mapeo corrió contra
-`CURR_DATA` en el ciclo de polling.
+`CURRENT_VALUES` en el ciclo de polling.
 
 ## Fase 3, paso 3 — Mapeo de fila a `TagSample`
 

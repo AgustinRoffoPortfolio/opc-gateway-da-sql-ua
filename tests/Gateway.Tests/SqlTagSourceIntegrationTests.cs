@@ -6,7 +6,7 @@ namespace Gateway.Tests;
 /// trae filas. Necesita la base levantada, asi que se omite si no estan las
 /// variables de entorno (ver SqlIntegrationFactAttribute).
 ///
-/// Los tests no escriben en CURR_DATA: leen lo que dejo el simulador. Es la
+/// Los tests no escriben en CURRENT_VALUES: leen lo que dejo el simulador. Es la
 /// situacion real, donde la tabla la escribe otra aplicacion. Hay que haber
 /// corrido el simulador al menos una vez.
 [Trait("Category", "Integration")]
@@ -37,7 +37,7 @@ public class SqlTagSourceIntegrationTests
     }
 
     [SqlIntegrationFact]
-    public void ReadRows_TraeFilasDeCurrData()
+    public void ReadRows_TraeFilasDeCurrentValues()
     {
         using var source = new SqlTagSource(ConfigDeLaBaseLocal());
         source.Connect();

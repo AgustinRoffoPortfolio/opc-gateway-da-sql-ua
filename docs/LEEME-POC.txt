@@ -1,6 +1,7 @@
 GATEWAY OPC DA -> UA (SQL) - POC PARA PI SYSTEM
-POC temporal en TEST. Publica por OPC UA los tags de
-SCADA_HST.dbo.CURR_DATA para que PI System los lea desde otra maquina.
+POC temporal en TEST. Publica por OPC UA los tags de la tabla de
+valores actuales configurada en Sql:Database / Sql:Table para que PI
+System los lea desde otra maquina.
 
 REQUISITOS
 
@@ -19,10 +20,14 @@ Seguir este orden exacto. NO ejecutar Gateway.Host.exe hasta el paso 4.
 
 2. Copiar appsettings.Local.example.json a appsettings.Local.json (al
    lado del ejecutable) y completarlo:
-     - Sql:Host, Sql:Port y Sql:Database: datos del SQL Server de TEST.
-       Los placeholders (IP-O-NOMBRE-DEL-SQL-SERVER, puerto 0, nombre
-       de base) no son validos a proposito, para que no se pase por
-       alto completarlos.
+     - Sql:Host, Sql:Port, Sql:Database y Sql:Table: datos del SQL
+       Server de TEST. Sql:Database y Sql:Table hay que fijarlos con
+       los nombres reales de TEST: los que trae appsettings.json son
+       genericos y no existen ahi. Sql:Schema viene en dbo; cambiarlo
+       solo si en TEST es otro. Los placeholders
+       (IP-O-NOMBRE-DEL-SQL-SERVER, puerto 0, nombre de base, nombre de
+       tabla) no son validos a proposito, para que no se pase por alto
+       completarlos.
      - Sql:User y Sql:Password (credenciales reales de SQL Server).
      - Ua:EndpointUrl: reemplazar NOMBRE-DE-ESTA-PC por el nombre de
        red real de esta maquina.

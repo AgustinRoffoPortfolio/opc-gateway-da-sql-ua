@@ -1,4 +1,4 @@
-# Simulador de `CURR_DATA`
+# Simulador de `CURRENT_VALUES`
 
 Replica en local la tabla que en producción escribe otra aplicación, para poder
 desarrollar y probar el driver SQL sin depender del servidor real (P10).
@@ -13,7 +13,7 @@ escribe esta tabla, solo la lee.
 | Ruta | Qué es |
 |---|---|
 | `compose.yml` (raíz del repo) | SQL Server 2019 Developer en contenedor |
-| `tools/SqlSimulator/schema/01-create-curr-data.sql` | Esquema de la tabla, fiel al `CREATE` real (P1) |
+| `tools/SqlSimulator/schema/01-create-current-values.sql` | Esquema de la tabla, fiel al `CREATE` real (P1) |
 | `tools/SqlSimulator/config/tags.simulator.jsonc` | Catálogo de tags simulados |
 | `tools/SqlSimulator/Program.cs` | El simulador |
 
@@ -40,8 +40,8 @@ Una sola vez, o cada vez que se borre el volumen. El script es idempotente:
 correrlo de nuevo no pisa datos.
 
 ```powershell
-docker cp .\tools\SqlSimulator\schema\01-create-curr-data.sql gateway-sql:/tmp/01-create-curr-data.sql
-docker exec -it gateway-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -i /tmp/01-create-curr-data.sql
+docker cp .\tools\SqlSimulator\schema\01-create-current-values.sql gateway-sql:/tmp/01-create-current-values.sql
+docker exec -it gateway-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -i /tmp/01-create-current-values.sql
 ```
 
 ### 3. El simulador
@@ -51,7 +51,7 @@ archivo versionado:
 
 ```powershell
 $pw = Read-Host "Password de sa" -AsSecureString
-$env:SQLSIM_CONNSTR = "Server=127.0.0.1,1433;Database=SCADA_HST;User ID=sa;Password=$([System.Net.NetworkCredential]::new('', $pw).Password);Encrypt=True;TrustServerCertificate=True;Connect Timeout=5"
+$env:SQLSIM_CONNSTR = "Server=127.0.0.1,1433;Database=PLANT_DB;User ID=sa;Password=$([System.Net.NetworkCredential]::new('', $pw).Password);Encrypt=True;TrustServerCertificate=True;Connect Timeout=5"
 $pw = $null
 dotnet run --project tools\SqlSimulator
 ```
@@ -176,7 +176,7 @@ tags SQL la degradación por antigüedad que la v1 usa para los tags DA.
 Con el simulador corriendo, desde otra ventana:
 
 ```powershell
-docker exec -it gateway-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -d SCADA_HST -Q "SET NOCOUNT ON; SELECT LEFT(TAG,38) AS TAG, CONVERT(varchar(12), TS, 114) AS TS, V, Q FROM dbo.CURR_DATA WITH (NOLOCK) ORDER BY TAG"
+docker exec -it gateway-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -d PLANT_DB -Q "SET NOCOUNT ON; SELECT LEFT(TAG,38) AS TAG, CONVERT(varchar(12), TS, 114) AS TS, V, Q FROM dbo.CURRENT_VALUES WITH (NOLOCK) ORDER BY TAG"
 ```
 
 Qué mirar:

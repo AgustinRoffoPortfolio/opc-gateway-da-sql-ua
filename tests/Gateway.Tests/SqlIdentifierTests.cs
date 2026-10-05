@@ -9,8 +9,8 @@ public class SqlIdentifierTests
     {
         Assert.True(SqlIdentifier.IsValid("TAG"));
         Assert.True(SqlIdentifier.IsValid("dbo"));
-        Assert.True(SqlIdentifier.IsValid("CURR_DATA"));
-        Assert.True(SqlIdentifier.IsValid("SCADA_HST"));
+        Assert.True(SqlIdentifier.IsValid("CURRENT_VALUES"));
+        Assert.True(SqlIdentifier.IsValid("PLANT_DB"));
         Assert.True(SqlIdentifier.IsValid("_interna"));
         Assert.True(SqlIdentifier.IsValid("T1"));
     }
@@ -35,13 +35,13 @@ public class SqlIdentifierTests
     [Fact]
     public void IntentosDeInyeccion_SeRechazan()
     {
-        Assert.False(SqlIdentifier.IsValid("CURR_DATA; DROP TABLE USUARIOS"));
-        Assert.False(SqlIdentifier.IsValid("CURR_DATA--"));
+        Assert.False(SqlIdentifier.IsValid("CURRENT_VALUES; DROP TABLE USUARIOS"));
+        Assert.False(SqlIdentifier.IsValid("CURRENT_VALUES--"));
         Assert.False(SqlIdentifier.IsValid("dbo]"));
         Assert.False(SqlIdentifier.IsValid("a'b"));
-        Assert.False(SqlIdentifier.IsValid("dbo.CURR_DATA"));
-        Assert.False(SqlIdentifier.IsValid("CURR DATA"));
-        Assert.False(SqlIdentifier.IsValid("CURR-DATA"));
+        Assert.False(SqlIdentifier.IsValid("dbo.CURRENT_VALUES"));
+        Assert.False(SqlIdentifier.IsValid("CURRENT VALUES"));
+        Assert.False(SqlIdentifier.IsValid("CURRENT-VALUES"));
     }
 
     // SQL Server aceptaria acentos entre corchetes; la lista blanca es a
@@ -64,9 +64,9 @@ public class SqlIdentifierTests
     [Fact]
     public void QualifyTable_ArmaElNombreDeLaConsultaDeR3()
     {
-        var nombre = SqlIdentifier.QualifyTable("SCADA_HST", "dbo", "CURR_DATA");
+        var nombre = SqlIdentifier.QualifyTable("PLANT_DB", "dbo", "CURRENT_VALUES");
 
-        Assert.Equal("[SCADA_HST].[dbo].[CURR_DATA]", nombre);
+        Assert.Equal("[PLANT_DB].[dbo].[CURRENT_VALUES]", nombre);
     }
 
     // Quote tiene que ser correcta sola, sin depender de que el llamador haya
@@ -76,6 +76,6 @@ public class SqlIdentifierTests
     public void Quote_DuplicaElCorcheteDeCierre()
     {
         Assert.Equal("[a]]b]", SqlIdentifier.Quote("a]b"));
-        Assert.Equal("[CURR_DATA]", SqlIdentifier.Quote("CURR_DATA"));
+        Assert.Equal("[CURRENT_VALUES]", SqlIdentifier.Quote("CURRENT_VALUES"));
     }
 }

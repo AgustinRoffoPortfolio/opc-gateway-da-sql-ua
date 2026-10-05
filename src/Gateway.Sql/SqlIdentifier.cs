@@ -56,7 +56,7 @@ public static class SqlIdentifier
     }
 
     /// Nombre completo de la tabla, como lo pide la consulta de R3.
-    /// Ejemplo: [SCADA_HST].[dbo].[CURR_DATA]
+    /// Ejemplo: [PLANT_DB].[dbo].[CURRENT_VALUES]
     public static string QualifyTable(string database, string schema, string table)
         => Quote(database) + "." + Quote(schema) + "." + Quote(table);
 

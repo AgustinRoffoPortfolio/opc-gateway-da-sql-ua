@@ -3,7 +3,7 @@
 # inicio de linea, decimales con PUNTO, TAG_NAME_OPC_UA unico.
 # SOURCE_TAG usa los nombres del simulador (tools/SqlSimulator): antes de
 # arrancar contra la base de TEST hay que reemplazarlos por los TAG
-# reales de SCADA_HST.dbo.CURR_DATA.
+# reales de la tabla configurada en Sql:Database / Sql:Table.
 TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS;DEADBAND;ACCESS_LEVEL;DESCRIPTION;ENABLED
 TAGS.PLANTA_01.MEDICION.PRESION_ENTRADA;SQL;PLANTA_01_MEDICION_PRESION_ENTRADA;Float;1;0;bar;0;0;Read;Presion de entrada, grupo RAPIDO;True
 TAGS.PLANTA_01.MEDICION.PRESION_SALIDA;SQL;PLANTA_01_MEDICION_PRESION_SALIDA;Float;1;0;bar;0;0;Read;Presion de salida, forzada por operador (Q=216);True

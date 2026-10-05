@@ -9,7 +9,7 @@ public enum TagDataType
     Int32,
     String,
 
-    // Agregado en la v2 (V2-14). La columna V de CURR_DATA es real: un float de
+    // Agregado en la v2 (V2-14). La columna V de CURRENT_VALUES es real: un float de
     // 4 bytes, unos 7 digitos significativos. Publicarlo como Double mostraria
     // digitos que la medicion no tiene. Va al final para no renumerar los que
     // ya existen.
@@ -27,7 +27,7 @@ public enum TagSource
 
 /// Identifica un tag dentro del universo de todas las fuentes. El nombre de
 /// origen solo no alcanza: los dos origenes vienen del mismo mundo y es
-/// razonable que un ItemID de DA y una fila de CURR_DATA se llamen igual, y sin
+/// razonable que un ItemID de DA y una fila de CURRENT_VALUES se llamen igual, y sin
 /// el origen adentro de la clave una fuente escribiria sobre los tags de la
 /// otra (V2-12).
 ///

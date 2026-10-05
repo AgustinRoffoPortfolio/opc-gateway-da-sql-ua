@@ -52,6 +52,11 @@ La verificación es visual: en el árbol de prueba, un solo tag cambia de valor
 periódicamente y su `SourceTimestamp` avanza; los demás quedan clavados en la
 hora de arranque mientras su `ServerTimestamp` sigue actualizándose.
 
+> **Actualización 05/10/2026 — esto se cumple en suscripción, no en Read.** En un
+> Read el stack iguala el `ServerTimestamp` al `SourceTimestamp`, así que los dos
+> salen clavados. El `SourceTimestamp` del nodo sigue sin pisarse. Ver V2-36 en
+> [`v2/decisiones.md`](v2/decisiones.md).
+
 ## 3. La jerarquía se deriva del nombre del tag
 
 El punto en `TAG_NAME_OPC_UA` separa jerarquía: `PLANTA_01.MEDICION.PRESION_ENTRADA`
@@ -255,6 +260,12 @@ estampa la hora actual. Se verificó comparando, en el mismo instante, lo que la
 cache entregaba al nodo contra lo que mostraba UaExpert: valor y timestamp buenos
 de un lado, `Null` y hora fresca del otro. También explica por qué un tag que
 nunca tuvo dato muestra un timestamp reciente en vez de 1601.
+
+> **Actualización 05/10/2026 — la hora fresca no la causa el `Bad`.** La causa es
+> que el stack reemplaza un `SourceTimestamp` en `MinValue` por la hora actual, con
+> cualquier `StatusCode`: un tag sin dato muestra hora fresca también en
+> `Uncertain`. Lo de que `Bad` no transporta valor sigue en pie. Ver V2-36 en
+> [`v2/decisiones.md`](v2/decisiones.md).
 
 La regla que resultó: **una muestra `NotConnected` no pisa un tag que ya tiene
 valor.** Se conserva el estado previo sin refrescar `LastUpdateUtc`, de modo que

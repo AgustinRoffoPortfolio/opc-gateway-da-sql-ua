@@ -378,6 +378,8 @@ TAG_NAME_OPC_UA;SOURCE;SOURCE_TAG;DATA_TYPE;MULTIPLICADOR;OFFSET;EU;SCAN_RATE_MS
 
 **Por qué el `SourceTimestamp` no avanza con `V` en `NULL`.** Avanzarlo afirmaría que hay una medición de ese instante, y no la hay. Es el mismo criterio con el que la v1 arranca los tags con `SourceTimestamp` en default en vez de en la hora actual: un tag sin dato no tiene momento de origen.
 
+> **Actualización 05/10/2026.** Eso vale en el nodo, no en el cliente: el stack reemplaza el `SourceTimestamp` en default por la hora actual al responder (V2-36).
+
 **Pendiente, que se suma al de V2-11.** Si `V` viene `NULL` de forma permanente, el tag queda indefinidamente mostrando un valor viejo en `Uncertain`, y como los tags SQL no degradan por antigüedad (V2-11), nada lo empeora nunca. Es el mismo hueco que el tag SQL que jamás recibe su primera muestra. Los dos casos se resuelven juntos, junto con la definición de qué cubre exactamente el tag ausente de P9.
 
 **Hallazgo al implementar.** La decisión no tenía camino en el código. Una muestra con calidad utilizable y valor nulo pasaba el chequeo de `IsUsable`, caía en `TryScale` —que devuelve `false` ante un nulo— y terminaba publicada como `ConversionError`, que es `Bad`: justo lo contrario de conservar el último valor bueno. Se agregó una rama en `TagCache.Apply`, entre el chequeo de calidad y el de escalado.
@@ -799,3 +801,31 @@ como anomalía, igual que un `V` o un `Q` nulos (V2-16), y esta decisión se rev
 **Pendiente: hora inexistente.** Un `TS` que cae en la hora que se saltea al adelantar el reloj tiene el mismo defecto: `MapTimestamp` degrada con `Downgrade`, que da `UncertainLastUsableValue` aunque el valor sea fresco. Queda fuera porque `Downgrade` es compartido con `V` en `NULL`, donde ese substatus sí es correcto, y porque con la zona por defecto (Argentina, sin horario de verano) el caso no ocurre.
 
 **Pendiente: `V` en `NULL` permanente sin valor previo.** Un tag con `V` en `NULL` desde el arranque nunca tuvo valor, así que el snapshot lo cuenta como mudo que nunca respondió (`NeverAnswered`). Junto a un tag ausente de la tabla, el veredicto pasa a `LikelyCsvMismatch` y manda a revisar el CSV aunque la fila exista y el origen la esté escribiendo (V2-21). Resolverlo exige una categoría nueva en el snapshot. Queda fuera por alcance, porque el proyecto está en la fase de cierre, y porque contra la tabla real es un caso improbable: según el relevamiento de R7, los dos casos `NULL` no existen en producción (`simulador.md`).
+
+---
+
+### V2-36 — Dos comportamientos del stack sobre timestamps no se corrigen
+
+**Decisión.** El gateway sigue dejando `DateTime.MinValue` en el `Timestamp` del nodo cuando el tag no tiene dato (`TagCache` lo arranca en `default` y `GatewayNodeManager.Publish` lo copia tal cual): el principio 2 se cumple en el servidor. Lo que llega al cliente lo decide el stack OPC Foundation 1.5.378.156, que tiene dos comportamientos que no se corrigen:
+
+- **(a) Reemplaza `MinValue` por `UtcNow` en el `SourceTimestamp`, en Read y en suscripción.** `BaseVariableState.ReadValueAttribute` hace `if (m_timestamp == DateTime.MinValue) sourceTimestamp = DateTime.UtcNow;`, y todo camino de lectura pasa por ahí vía `NodeState.ReadAttribute`. En Read, `CustomNodeManager2.Read` repite el chequeo después de leer. En suscripción, `CustomNodeManager2.ReadInitialValue` (valor inicial) y `MonitoredNode2.QueueValue` (cada cambio) arman el `DataValue` con `ServerTimestamp = DateTime.UtcNow` y después leen el nodo, así que los dos timestamps salen de dos `UtcNow` separados por microsegundos.
+- **(b) En Read iguala el `ServerTimestamp` al `SourceTimestamp`.** `CustomNodeManager2.Read`, para el atributo Value, hace `ServerTimestamp = SourceTimestamp` después de leer, con cualquier tag y cualquier calidad. En suscripción no pasa: el `ServerTimestamp` es la hora del muestreo.
+
+Las referencias son al código decompilado (ilspycmd) de `Opc.Ua.Types.dll` y `Opc.Ua.Server.dll`, build net10.0 del paquete. El paquete NuGet no trae fuentes ni `.pdb`, y no se cotejó contra el tag del repositorio de GitHub ni contra los otros frameworks.
+
+**Evidencia.** UaExpert, 05/10/2026, contra el gateway con `demo-mixto`:
+
+| Caso | Servicio | `SourceTimestamp` | `ServerTimestamp` |
+|---|---|---|---|
+| Tag DA `Good` | Suscripción (Data Access View) | 18:05:44.263 | 18:05:45.760 |
+| Mismo tag | Read (panel Attributes) | 18:11:45.916 | 18:11:45.916 |
+| `PRUEBA.NULO_VALOR`, `PRUEBA.TAG_AUSENTE` | Suscripción | igual al `ServerTimestamp` al milisegundo | — |
+
+La primera fila es (b) en negativo: en suscripción los dos timestamps difieren. La segunda es (b): el mismo tag leído por Read los muestra idénticos. La tercera es (a): el nodo tiene `MinValue` y el cliente ve la hora del muestreo.
+
+**Por qué no se corrige.** Las dos cosas están dentro del stack, no en el gateway. Corregirlas exige sobrescribir clases del stack (`ReadValueAttribute` en una variable propia, `Read` en el node manager) y sostener esas copias contra cada versión nueva del SDK. Un cambio en el comportamiento del stack UA es otro proyecto, no un ajuste de este.
+
+**Costo.**
+
+- Por el timestamp, un cliente no distingue "tag sin dato" de "medido recién". Sí lo distingue por el `StatusCode`, que en esos casos nunca es `Good`: `Bad` (`WaitingForInitialData` o tag ausente) o `Uncertain` (`V` en `NULL` sin valor previo). Un historiador que guarde el `SourceTimestamp` sin mirar la calidad registra una medición en un instante en que no la hubo.
+- Un cliente que solo hace Read no ve el `ServerTimestamp` real: ve el `SourceTimestamp` repetido, y no puede medir la antigüedad del dato comparando los dos. Un cliente suscripto sí lo ve.

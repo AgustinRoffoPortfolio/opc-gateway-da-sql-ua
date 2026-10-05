@@ -230,6 +230,13 @@ para la v2.
   (V2-33). El esquema real no lo permite, pero si pasara, todos los tags SQL
   quedarían en `Uncertain` con el log repitiendo "Sigue caido" aunque la base esté
   sana.
+- **Un tag sin dato le llega al cliente con la hora actual como `SourceTimestamp`.**
+  El gateway deja el nodo sin hora, pero el stack UA la reemplaza por `UtcNow`, en
+  Read y en suscripción. Se distingue por el `StatusCode`, no por el timestamp
+  ([V2-36](docs/v2/decisiones.md#v2-36--dos-comportamientos-del-stack-sobre-timestamps-no-se-corrigen)).
+- **En un Read, el `ServerTimestamp` sale igual al `SourceTimestamp`.** Lo iguala el
+  stack UA. El `ServerTimestamp` real solo se ve en suscripción
+  ([V2-36](docs/v2/decisiones.md#v2-36--dos-comportamientos-del-stack-sobre-timestamps-no-se-corrigen)).
 - **La password de SQL vive en un archivo local ignorado por git**
   (`appsettings.Local.json`, V2-26). Es la solución aceptada para la POC (P12); el
   guardado seguro definitivo queda fuera de alcance.
@@ -251,7 +258,7 @@ para la v2.
 | [`docs/calidad-da-ua.md`](docs/calidad-da-ua.md) | El mapeo de calidad DA ↔ StatusCode UA |
 | **v2 — fuente SQL** | |
 | [`docs/v2/requisitos.md`](docs/v2/requisitos.md) | Qué se pidió: R1–R7 y los puntos aclarados |
-| [`docs/v2/decisiones.md`](docs/v2/decisiones.md) | Las 33 decisiones de la v2 con su porqué |
+| [`docs/v2/decisiones.md`](docs/v2/decisiones.md) | Las 36 decisiones de la v2 con su porqué |
 | [`docs/v2/verificacion.md`](docs/v2/verificacion.md) | Lo medido sobre la v2 |
 | [`docs/v2/driver-sql.md`](docs/v2/driver-sql.md) | Evidencia de lo que se probó del driver SQL, paso a paso |
 | [`docs/v2/simulador.md`](docs/v2/simulador.md) | El simulador de la tabla y cómo se levanta |

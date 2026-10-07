@@ -2,7 +2,7 @@
 
 Especificación de la segunda fuente de datos de la v2 del gateway. Define qué se construye; el cómo se resuelve en `decisiones-v2.md`.
 
-Los IDs `R1`–`R7` identifican requisitos y `P1`–`P13` puntos de especificación aclarados durante el diseño. El resto de `docs/` los referencia por número.
+Los IDs `R1`–`R7` identifican requisitos y `P1`–`P15` puntos de especificación aclarados durante el diseño. El resto de `docs/` los referencia por número.
 
 ---
 
@@ -140,6 +140,14 @@ CREATE TABLE [dbo].[CURRENT_VALUES](
 ### P13. Nombres reales en un repositorio público
 
 Resuelto (05/10/2026). El dueño del dato considera que los nombres de base y tabla son bastante genéricos y no exponen nada, pero prefiere que se cambien si es posible. El repositorio usa desde entonces `PLANT_DB` para la base y `CURRENT_VALUES` para la tabla; el esquema (`dbo`) y las columnas (`TAG`, `TS`, `V`, `Q`) no cambian. Los nombres reales van solo en la configuración local de cada instalación (`appsettings.Local.json`, V2-26), nunca en el repositorio. El renombre es solo hacia adelante (V2-34).
+
+### P14. Aplicación de origen muerta con la base viva
+
+Abierta, no bloquea. Pregunta: ¿qué pasa si la aplicación de origen muere con la base viva: se congela `TS`, hay alguna señal de "estoy vivo"? Está declarada como deuda en las Limitaciones del README, y la mencionan también `docs/v2/verificacion.md` (caso b, medido una vez), `docs/operacion.md` (suscripción y cambios de solo timestamp) y `docs/v2/decisiones.md` (V2-32, lo que no cubre).
+
+### P15. Repositorio público con los nombres reales en el historial
+
+Resuelto (07/10/2026). Pregunta, tal como se mandó por WhatsApp: "En el código y la documentación actual los nombres de la base y la tabla ya son genéricos, pero en el historial viejo de cambios siguen apareciendo los nombres reales (no hay IPs, usuarios ni contraseñas, eso lo verifiqué). ¿Te parece bien que quede así público, o preferís que lo deje privado?". El dueño del dato respondió el 07/10/2026 a las 19:06: "publicalo". Alcance exacto, verificado con `git grep`: los commits de `4814f63` a `513779f`, ambos inclusive (en este último, en el diff y en el mensaje); el tag `v1.0.0` no los contiene.
 
 ---
 

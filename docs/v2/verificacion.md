@@ -208,3 +208,52 @@ sigue cumpliendo. El segundo corte volvió a loguear "Sigue caido" y no "Se cort
 **No medido en esta corrida.** El caso b (aplicación de origen muerta con la base
 viva) y la marca tag por tag con valores y `SourceTimestamp`: se midieron una vez
 en la corrida de V2-32 y no dependen de la carga de la CPU.
+
+## Fuente SQL inactiva por configuración inválida · 07/10/2026
+
+**Montaje.** `6588618`, `config/demo-mixto.tags.csv` (21 tags válidos, DA y SQL),
+Matrikon con `demo-10.opcsim.xml` y contenedor `gateway-sql` arriba.
+
+**Cómo se corrió.** Gateway con `dotnet run --project src/Gateway.Host` y dos
+variables fijadas solo en la ventana que lo lanza: `Ua__TagsCsvPath` con la ruta
+absoluta de `demo-mixto` y `Sql__PollingIntervalSeconds` en `0`, fuera del rango
+válido (1–3600). Se miró el log, la página de `:8080` y UaExpert.
+
+**Esperado.** 21 tags cargados, un error de configuración SQL, ningún "Driver SQL
+conectado" y el driver DA conectando normal: la fuente SQL queda inactiva y el
+resto del gateway sigue.
+
+**Observado.**
+- Log: `Tags cargados: 21 validos`, `ERR Configuracion SQL invalida:
+  Sql:PollingIntervalSeconds fuera de todo rango razonable: 0. Tiene que estar
+  entre 1 y 3600.`, `ERR Fuente SQL inactiva: ...` y `Driver DA conectado a
+  Matrikon.OPC.Simulation.1`. No aparece "Driver SQL conectado".
+- `:8080`: tarjeta SQL "Inactiva" en rojo con "Configuración inválida en
+  `Sql:*`"; DA 10/10 `Good`; 21 configurados, 10 `Good`, 11 `Bad`.
+- UaExpert: `Gateway/Sql/LastError` = "Configuracion invalida" (`Good`),
+  `Gateway/Sql/LinkState` = `Disconnected` (`Good`), `LastCycleMs` en `Null`; los
+  tags SQL en `BadWaitingForInitialData`.
+
+Coincide con lo esperado.
+
+## Variable `Ua__TagsCsvPath` no tomada · 07/10/2026
+
+**Montaje.** `6588618`, Matrikon con `demo-10.opcsim.xml`.
+
+**Cómo se corrió.** Gateway con `dotnet run --project src/Gateway.Host` desde una
+terminal limpia, sin `Ua__TagsCsvPath` ni `Sql__PollingIntervalSeconds`. Es el
+caso que describe el README: olvidarse la variable al levantar la demo.
+
+**Esperado.** Que tome el CSV por defecto (`config/tags.example.csv`, 10 tags solo
+DA), lo diga en el log con `Tags cargados: 10 validos` y el aviso de que no hay
+tags `SOURCE=SQL`, y arranque sin fallar.
+
+**Observado.**
+
+```text
+[19:19:32 INF] Tags cargados: 10 validos, 0 con error, 0 con aviso
+[19:19:32 INF] No hay tags SOURCE=SQL en el CSV; la fuente SQL no se activa y Sql:* no se exige.
+[19:19:33 INF] Driver DA conectado a Matrikon.OPC.Simulation.1, leyendo cada 1000 ms
+```
+
+Coincide con lo esperado y con los dos fragmentos que cita el README.

@@ -147,7 +147,7 @@ Abierta, no bloquea. Pregunta: ¿qué pasa si la aplicación de origen muere con
 
 ### P15. Repositorio público con los nombres reales en el historial
 
-Resuelto (07/10/2026). Pregunta, tal como se mandó por WhatsApp: "En el código y la documentación actual los nombres de la base y la tabla ya son genéricos, pero en el historial viejo de cambios siguen apareciendo los nombres reales (no hay IPs, usuarios ni contraseñas, eso lo verifiqué). ¿Te parece bien que quede así público, o preferís que lo deje privado?". El dueño del dato respondió el 07/10/2026 a las 19:06: "publicalo". Alcance exacto, verificado con `git grep`: los commits de `4814f63` a `513779f`, ambos inclusive (en este último, en el diff y en el mensaje); el tag `v1.0.0` no los contiene.
+Resuelto (07/10/2026). Pregunta, tal como se mandó por WhatsApp: "En el código y la documentación actual los nombres de la base y la tabla ya son genéricos, pero en el historial viejo de cambios siguen apareciendo los nombres reales (no hay IPs, usuarios ni contraseñas, eso lo verifiqué). ¿Te parece bien que quede así público, o preferís que lo deje privado?". El dueño del dato respondió el 07/10/2026 a las 19:06: "publicalo". Alcance exacto, verificado con `git grep` (tag `v1.0.0`) y `git log -S` (rango): los commits de `4814f63` a `513779f`, ambos inclusive (en este último, en el diff y en el mensaje); el tag `v1.0.0` no los contiene.
 
 ---
 
